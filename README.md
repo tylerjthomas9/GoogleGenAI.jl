@@ -33,7 +33,7 @@ prompt = "Hello"
 response = generate_content(secret_key, model, prompt)
 println(response.text)
 ```
-return
+returns
 ```julia
 "Hello there! How may I assist you today? Feel free to ask me any questions you may have or give me a command. I'm here to help! 😊"
 ```
