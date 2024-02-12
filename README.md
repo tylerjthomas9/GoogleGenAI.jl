@@ -78,7 +78,7 @@ end
 ```
 returns
 ```julia
-models/gemini-pro
-models/gemini-pro-vision
+gemini-pro
+gemini-pro-vision
 ```
 

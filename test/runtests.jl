@@ -14,6 +14,10 @@ const secret_key = ENV["GOOGLE_API_KEY"]
     embeddings = embed_content(secret_key, "embedding-001", "Hello")
     @test typeof(embeddings) == GoogleGenAI.GoogleEmbeddingResponse
     @test size(embeddings.values) == (768,)
+
+    models = list_models(secret_key)
+    @test length(models) > 0
+    @test haskey(models[1], :name)
 end
 
 Aqua.test_all(GoogleGenAI)
