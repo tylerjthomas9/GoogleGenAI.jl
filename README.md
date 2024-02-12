@@ -48,7 +48,6 @@ using GoogleGenAI
 n_tokens = count_tokens(ENV["GOOGLE_API_KEY"], "gemini-pro", "Hello")
 println(n_tokens)
 ```
-
 returns
 ```julia
 1
@@ -61,7 +60,6 @@ using GoogleGenAI
 embeddings = create_embeddings(ENV["GOOGLE_API_KEY"], "gemini-pro", "Hello")
 println(size(embeddings.values))
 ```
-
 returns
 ```julia
 (768,)
@@ -78,7 +76,6 @@ for m in models
     end
 end
 ```
-
 returns
 ```julia
 models/gemini-pro
