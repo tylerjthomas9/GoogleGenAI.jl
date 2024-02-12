@@ -25,6 +25,9 @@ Pkg> add https://github.com/tylerjthomas9/GoogleGenAI.jl/
 
 Create a [secret API key in Google AI Studio](https://makersuite.google.com/)
 
+
+### Generate Content
+
 ```julia
 using GoogleGenAI
 
@@ -38,3 +41,47 @@ returns
 ```julia
 "Hello there! How may I assist you today? Feel free to ask me any questions you may have or give me a command. I'm here to help! 😊"
 ```
+
+### Count Tokens
+```julia
+using GoogleGenAI
+n_tokens = count_tokens(ENV["GOOGLE_API_KEY"], "gemini-pro", "Hello")
+println(n_tokens)
+```
+
+returns
+```julia
+1
+```
+
+### Create Embeddings
+
+```julia
+using GoogleGenAI
+embeddings = create_embeddings(ENV["GOOGLE_API_KEY"], "gemini-pro", "Hello")
+println(size(embeddings.values))
+```
+
+returns
+```julia
+(768,)
+```
+
+### List Models
+
+```julia
+using GoogleGenAI
+models = list_models(ENV["GOOGLE_API_KEY"])
+for m in models
+    if "generateContent" in m[:supported_generation_methods]
+        println(m[:name])
+    end
+end
+```
+
+returns
+```julia
+models/gemini-pro
+models/gemini-pro-vision
+```
+
