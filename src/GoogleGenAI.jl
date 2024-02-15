@@ -48,7 +48,9 @@ end
 # safety_settings: Safety settings for generated text. Defaults to None.
 # stop_sequences: Stop sequences to halt text generation. Can be a string
 #         or iterable of strings. Defaults to None.
-function generate_content(provider::GoogleProvider, model_name::String, input::String; kwargs...)
+function generate_content(
+    provider::GoogleProvider, model_name::String, input::String; kwargs...
+)
     url = "$(provider.base_url)/models/$model_name:generateContent?key=$(provider.api_key)"
     generation_config = Dict{String,Any}()
     for (key, value) in kwargs
@@ -57,7 +59,7 @@ function generate_content(provider::GoogleProvider, model_name::String, input::S
 
     body = Dict(
         "contents" => [Dict("parts" => [Dict("text" => input)])],
-        "generationConfig" => generation_config
+        "generationConfig" => generation_config,
     )
     response = HTTP.post(
         url; headers=Dict("Content-Type" => "application/json"), body=JSON3.write(body)
@@ -144,7 +146,6 @@ function list_models(provider::GoogleProvider)
 end
 list_models(api_key::String) = list_models(GoogleProvider(; api_key))
 
-export GoogleProvider,
-    GoogleResponse, generate_content, count_tokens, embed_content, list_models
+export GoogleProvider, generate_content, count_tokens, embed_content, list_models
 
 end # module GoogleGenAI
