@@ -5,7 +5,7 @@ using Test
 const secret_key = ENV["GOOGLE_API_KEY"]
 
 @testset "GoogleGenAI.jl" begin
-    response = generate_content(secret_key, "gemini-pro", "Hello")
+    response = generate_content(secret_key, "gemini-pro", "Hello"; max_output_tokens=25)
     @test typeof(response) == GoogleGenAI.GoogleTextResponse
 
     n_tokens = count_tokens(secret_key, "gemini-pro", "Hello")

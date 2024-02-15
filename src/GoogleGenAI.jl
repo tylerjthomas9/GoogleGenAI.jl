@@ -39,7 +39,7 @@ function _parse_response(response::HTTP.Messages.Response)
     return GoogleTextResponse(candidates, safety_rating, concatenated_texts)
 end
 
-#TODO: Add support for the following
+#TODO: Add Documentation and tests (this is from the python api)
 # temperature: The temperature for randomness in generation. Defaults to None.
 # candidate_count: The number of candidates to consider. Defaults to None.
 # max_output_tokens: The maximum number of output tokens. Defaults to None.
@@ -48,22 +48,28 @@ end
 # safety_settings: Safety settings for generated text. Defaults to None.
 # stop_sequences: Stop sequences to halt text generation. Can be a string
 #         or iterable of strings. Defaults to None.
-function generate_content(provider::GoogleProvider, model_name::String, input::String)
+function generate_content(provider::GoogleProvider, model_name::String, input::String; kwargs...)
     url = "$(provider.base_url)/models/$model_name:generateContent?key=$(provider.api_key)"
-    body = Dict("contents" => [Dict("parts" => [Dict("text" => input)])])
+    generation_config = Dict{String,Any}()
+    for (key, value) in kwargs
+        generation_config[string(key)] = value
+    end
 
+    body = Dict(
+        "contents" => [Dict("parts" => [Dict("text" => input)])],
+        "generationConfig" => generation_config
+    )
     response = HTTP.post(
         url; headers=Dict("Content-Type" => "application/json"), body=JSON3.write(body)
     )
-
     if response.status >= 200 && response.status < 300
         return _parse_response(response)
     else
         error("Request failed with status $(response.status): $(String(response.body))")
     end
 end
-function generate_content(api_key::String, model_name::String, input::String)
-    return generate_content(GoogleProvider(; api_key), model_name, input)
+function generate_content(api_key::String, model_name::String, input::String; kwargs...)
+    return generate_content(GoogleProvider(; api_key), model_name, input; kwargs...)
 end
 
 function count_tokens(provider::GoogleProvider, model_name::String, input::String)

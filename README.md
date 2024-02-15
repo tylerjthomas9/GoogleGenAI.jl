@@ -42,6 +42,15 @@ returns
 "Hello there! How may I assist you today? Feel free to ask me any questions you may have or give me a command. I'm here to help! 😊"
 ```
 
+```julia
+response = generate_content(secret_key, model, prompt; max_output_tokens=10)
+println(response.text)
+```
+returns
+```julia
+"Hello! How can I assist you today?"
+```
+
 ### Count Tokens
 ```julia
 using GoogleGenAI
