@@ -80,7 +80,7 @@ Generate text using the specified model.
 - `candidate_count::Int`: The number of candidates to consider. (Only one can be specified right now)
 - `max_output_tokens::Int`: The maximum number of output tokens.
 - `stop_sequences::Vector{String}`: Stop sequences to halt text generation.
-- `safety_settings::Dict`: Safety settings for generated text.
+- `safety_settings::Vector{Dict}`: Safety settings for generated text.
 """
 function generate_content(
     provider::GoogleProvider, model_name::String, input::String; kwargs...
