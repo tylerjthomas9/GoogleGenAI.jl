@@ -64,16 +64,23 @@ function _parse_response(response::HTTP.Messages.Response)
     )
 end
 
-#TODO: Add Documentation and tests (this is from the python api)
-# temperature: The temperature for randomness in generation. Defaults to None.
-# candidate_count: The number of candidates to consider. Defaults to None. (Only one can be specified right now)
-# max_output_tokens: The maximum number of output tokens. Defaults to None.
-# safety_settings: Safety settings for generated text. Defaults to None.
-# stop_sequences: Stop sequences to halt text generation. Can be a string
-#         or iterable of strings. Defaults to None.
-
 """
+generate_content(provider::GoogleProvider, model_name::String, input::String; kwargs...)
+generate_content(api_key::String, model_name::String, input::String; kwargs...)
 
+Generate text using the specified model.
+
+# Arguments
+- `provider::GoogleProvider`: The provider to use for the request.
+- `model_name::String`: The model to use for the request.
+- `input::String`: The input prompt to use for the request.
+
+# Keyword Arguments
+- `temperature::Float64`: The temperature for randomness in generation. 
+- `candidate_count::Int`: The number of candidates to consider. (Only one can be specified right now)
+- `max_output_tokens::Int`: The maximum number of output tokens.
+- `stop_sequences::Vector{String}`: Stop sequences to halt text generation.
+- `safety_settings::Dict`: Safety settings for generated text.
 """
 function generate_content(
     provider::GoogleProvider, model_name::String, input::String; kwargs...
