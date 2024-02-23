@@ -91,3 +91,20 @@ gemini-pro
 gemini-pro-vision
 ```
 
+### Safety Settings
+
+More information about the safety settings can be found [here](https://ai.google.dev/docs/safety_setting_gemini).
+
+```julia
+using GoogleGenAI
+secret_key = ENV["GOOGLE_API_KEY"]
+safety_settings = [
+    Dict("category" => "HARM_CATEGORY_HATE_SPEECH", "threshold" => "HARM_BLOCK_THRESHOLD_UNSPECIFIED"),
+    Dict("category" => "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold" => "BLOCK_ONLY_HIGH"),
+    Dict("category" => "HARM_CATEGORY_HARASSMENT", "threshold" => "BLOCK_MEDIUM_AND_ABOVE"),
+    Dict("category" => "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold" => "BLOCK_LOW_AND_ABOVE")
+]
+model = "gemini-pro"
+prompt = "Hello"
+response = generate_content(secret_key, model, prompt; safety_settings=safety_settings)
+```
