@@ -80,9 +80,9 @@ function generate_content(
 )
     endpoint = "models/$model_name:generateContent"
 
-    generation_config = Dict{String, Any}()
+    generation_config = Dict{String,Any}()
     for (key, value) in kwargs
-        if key != :safety_settings 
+        if key != :safety_settings
             generation_config[string(key)] = value
         end
     end
@@ -96,9 +96,9 @@ function generate_content(
     body = Dict(
         "contents" => [Dict("parts" => [Dict("text" => input)])],
         "generationConfig" => generation_config,
-        "safetySettings" => safety_settings
+        "safetySettings" => safety_settings,
     )
-    
+
     response = _request(provider, endpoint, :POST, body)
     return _parse_response(response)
 end
