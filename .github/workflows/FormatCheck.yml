@@ -1,0 +1,59 @@
+name: Format Check
+on:
+  push:
+    branches:
+      - main
+    tags: ["*"]  # Triggers from tags ignore the `paths` filter: https://github.com/orgs/community/discussions/26273
+    paths:
+      - "**/*.jl"
+      - ".github/workflows/FormatCheck.yml"
+  pull_request:
+    paths:
+      - "**/*.jl"
+      - ".github/workflows/FormatCheck.yml"
+concurrency:
+  # Skip intermediate builds: always.
+  # Cancel intermediate builds: only if it is a pull request build.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+jobs:
+  format-check:
+    name: Julia
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v1
+        with:
+          version: "1"
+      - uses: julia-actions/cache@v1
+        with:
+          cache-name: "${{ github.workflow }}-${{ github.job }}-${{ matrix.pkg.name }}-${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}"
+          cache-compiled: true
+      - name: Install JuliaFormatter
+        shell: julia --project=@format --color=yes {0}
+        run: |
+          using Pkg
+          Pkg.add(PackageSpec(name="JuliaFormatter", version="1"))
+      - name: Check formatting
+        shell: julia --project=@format --color=yes {0}
+        run: |
+          using JuliaFormatter
+
+          # JuliaFormatter's `format(".")` hangs when traversing our directory structure
+          formatted = true
+          for (root, dirs, files) in walkdir(".")
+              for file in files
+                  if endswith(file, ".jl")
+                      global formatted &= format_file(joinpath(root, file); verbose=true)
+                  end
+              end
+          end
+          if !formatted
+              @error "Found some unformatted files:\n" * read(`git diff --name-only`, String)
+              exit(1)
+          end
+      # Add formatting suggestions to non-draft PRs even if when "Check formatting" fails
+      - uses: reviewdog/action-suggester@v1
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.draft == false }}
+        with:
+          tool_name: JuliaFormatter
