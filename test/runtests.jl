@@ -20,10 +20,10 @@ const secret_key = ENV["GOOGLE_API_KEY"]
     @test typeof(response) == GoogleGenAI.GoogleTextResponse
 
     # Multi-turn conversation
-    conversation = [
-        Dict(:role => "user", :parts => [Dict(:text => "Hello")]),
-    ]
-    response = generate_content(secret_key, "gemini-pro", conversation; max_output_tokens=50)
+    conversation = [Dict(:role => "user", :parts => [Dict(:text => "Hello")])]
+    response = generate_content(
+        secret_key, "gemini-pro", conversation; max_output_tokens=50
+    )
 
     n_tokens = count_tokens(secret_key, "gemini-pro", "Hello")
     @test n_tokens == 1
