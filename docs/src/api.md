@@ -2,8 +2,11 @@
 CurrentModule = GoogleGenAI
 ```
 
-# API
+```@index
 ```
+
+# API
+```@docs
 GoogleProvider
 generate_content
 count_tokens
