@@ -51,6 +51,21 @@ returns
 "Hello! How can I assist you today?"
 ```
 
+```julia
+using GoogleGenAI
+
+secret_key = ENV["GOOGLE_API_KEY"]
+model = "gemini-pro-vision"
+prompt = "What is this image?"
+image_path = "test/example.jpg"
+response = generate_content(secret_key, model, prompt, image_path)
+println(response.text)
+```
+returns
+```
+"The logo for the Julia programming language."
+```
+
 ### Count Tokens
 ```julia
 using GoogleGenAI
