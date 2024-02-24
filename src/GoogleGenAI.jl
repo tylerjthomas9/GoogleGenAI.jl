@@ -80,9 +80,13 @@ function _parse_response(response::HTTP.Messages.Response)
     )
 end
 
+#TODO: Should we use different function names?
 """
     generate_content(provider::AbstractGoogleProvider, model_name::String, prompt::String, image_path::String; kwargs...) -> GoogleTextResponse
     generate_content(api_key::String, model_name::String, prompt::String, image_path::String; kwargs...) -> GoogleTextResponse
+    
+    generate_content(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; kwargs...) -> GoogleTextResponse
+    generate_content(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; kwargs...) -> GoogleTextResponse
 
 Generate content based on a combination of text prompt and an image (optional).
 
@@ -140,10 +144,7 @@ function generate_content(
     image_path::String;
     kwargs...,
 )
-    # Correctly encode the image to Base64
     image_data = open(base64encode, image_path)
-
-    # Construct the request body
     body = Dict(
         "contents" => [
             Dict(
@@ -156,7 +157,6 @@ function generate_content(
                 ],
             ),
         ],
-        # Include other generation configurations from kwargs
         "generationConfig" =>
             Dict([string(k) => v for (k, v) in kwargs if k != :safety_settings]),
         "safetySettings" => get(kwargs, :safety_settings, nothing),
@@ -171,6 +171,44 @@ function generate_content(
     return generate_content(
         GoogleProvider(; api_key), model_name, prompt, image_path; kwargs...
     )
+end
+
+function generate_content(
+    provider::AbstractGoogleProvider,
+    model_name::String,
+    conversation::Vector{Dict{Symbol,Any}};
+    kwargs...,
+)
+    endpoint = "models/$model_name:generateContent"
+
+    contents = []
+    for turn in conversation
+        role = turn[:role]
+        parts = turn[:parts]
+        push!(contents, Dict("role" => role, "parts" => parts))
+    end
+
+    generation_config = Dict{String,Any}()
+    for (key, value) in kwargs
+        if key != :safety_settings
+            generation_config[string(key)] = value
+        end
+    end
+
+    safety_settings = get(kwargs, :safety_settings, nothing)
+    body = Dict(
+        "contents" => contents,
+        "generationConfig" => generation_config,
+        "safetySettings" => safety_settings,
+    )
+
+    response = _request(provider, endpoint, :POST, body)
+    return _parse_response(response)
+end
+function generate_content(
+    api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; kwargs...
+)
+    return generate_content(GoogleProvider(; api_key), model_name, conversation; kwargs...)
 end
 
 """
