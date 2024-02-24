@@ -266,7 +266,6 @@ function list_models(provider::AbstractGoogleProvider)
 end
 list_models(api_key::String) = list_models(GoogleProvider(; api_key))
 
-export GoogleProvider,
-    generate_content, count_tokens, embed_content, list_models
+export GoogleProvider, generate_content, count_tokens, embed_content, list_models
 
 end # module GoogleGenAI
