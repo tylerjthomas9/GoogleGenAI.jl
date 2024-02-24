@@ -1,25 +1,63 @@
 module GoogleGenAI
 
+using Base64
 using JSON3
 using HTTP
 
-Base.@kwdef struct GoogleProvider
-    api_key::String = ""
-    base_url::String = "https://generativelanguage.googleapis.com/v1beta"
-end
+abstract type AbstractGoogleProvider end
 
+"""
+    Base.@kwdef struct GoogleProvider <: AbstractGoogleProvider
+        api_key::String = ""
+        base_url::String = "https://generativelanguage.googleapis.com"
+        api_version::String = "v1beta"
+    end
+
+A configuration object used to set up and authenticate requests to the Google Generative Language API.
+
+# Fields
+- `api_key::String`: Your Google API key. 
+- `base_url::String`: The base URL for the Google Generative Language API. The default is set to `"https://generativelanguage.googleapis.com"`.
+- `api_version::String`: The version of the API you wish to access. The default is set to `"v1beta"`.
+"""
+Base.@kwdef struct GoogleProvider <: AbstractGoogleProvider
+    api_key::String = ""
+    base_url::String = "https://generativelanguage.googleapis.com"
+    api_version::String = "v1beta"
+end
 struct GoogleTextResponse
     candidates::Vector{Dict{Symbol,Any}}
     safety_ratings::Dict{Pair{Symbol,String},Pair{Symbol,String}}
     text::String
+    response_status::Int
+    finish_reason::String
 end
 
 struct GoogleEmbeddingResponse
     values::Vector{Float64}
+    response_status::Int
 end
 
 #TODO: Add support for exception
 struct BlockedPromptException <: Exception end
+
+function status_error(resp, log=nothing)
+    logs = !isnothing(log) ? ": $log" : ""
+    return error("Request failed with status $(resp.status) $(resp.message)$logs")
+end
+
+function _request(
+    provider::AbstractGoogleProvider, endpoint::String, method::Symbol, body::Dict
+)
+    url = "$(provider.base_url)/$(provider.api_version)/$endpoint?key=$(provider.api_key)"
+    headers = Dict("Content-Type" => "application/json")
+    serialized_body = isempty(body) ? UInt8[] : JSON3.write(body)
+    response = HTTP.request(method, url; headers=headers, body=serialized_body)
+    if response.status >= 400
+        status_error(response, String(response.body))
+    end
+    return response
+end
 
 function _extract_text(response::JSON3.Object)
     all_texts = String[]
@@ -35,114 +73,234 @@ function _parse_response(response::HTTP.Messages.Response)
     all_texts = _extract_text(parsed_response)
     concatenated_texts = join(all_texts, "")
     candidates = [Dict(i) for i in parsed_response[:candidates]]
+    finish_reason = candidates[end][:finishReason]
     safety_rating = Dict(parsed_response.promptFeedback.safetyRatings)
-    return GoogleTextResponse(candidates, safety_rating, concatenated_texts)
+    return GoogleTextResponse(
+        candidates, safety_rating, concatenated_texts, response.status, finish_reason
+    )
 end
 
-#TODO: Add Documentation and tests (this is from the python api)
-# temperature: The temperature for randomness in generation. Defaults to None.
-# candidate_count: The number of candidates to consider. Defaults to None.
-# max_output_tokens: The maximum number of output tokens. Defaults to None.
-# top_p: The nucleus sampling probability threshold. Defaults to None.
-# top_k: The top-k sampling parameter. Defaults to None.
-# safety_settings: Safety settings for generated text. Defaults to None.
-# stop_sequences: Stop sequences to halt text generation. Can be a string
-#         or iterable of strings. Defaults to None.
+#TODO: Should we use different function names?
+"""
+    generate_content(provider::AbstractGoogleProvider, model_name::String, prompt::String, image_path::String; kwargs...) -> GoogleTextResponse
+    generate_content(api_key::String, model_name::String, prompt::String, image_path::String; kwargs...) -> GoogleTextResponse
+    
+    generate_content(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; kwargs...) -> GoogleTextResponse
+    generate_content(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; kwargs...) -> GoogleTextResponse
+
+Generate content based on a combination of text prompt and an image (optional).
+
+# Arguments
+- `provider::AbstractGoogleProvider`: The provider instance for API requests.
+- `api_key::String`: Your Google API key as a string. 
+- `model_name::String`: The model to use for content generation.
+- `prompt::String`: The text prompt to accompany the image.
+- `image_path::String` (optional): The path to the image file to include in the request.
+
+# Keyword Arguments
+- `temperature::Float64` (optional): Controls the randomness in the generation process. Higher values result in more random outputs. Typically ranges between 0 and 1.
+- `candidate_count::Int` (optional): The number of generation candidates to consider. Currently, only one candidate can be specified.
+- `max_output_tokens::Int` (optional): The maximum number of tokens that the generated content should contain.
+- `stop_sequences::Vector{String}` (optional): A list of sequences where the generation should stop. Useful for defining natural endpoints in generated content.
+- `safety_settings::Vector{Dict}` (optional): Settings to control the safety aspects of the generated content, such as filtering out unsafe or inappropriate content.
+
+# Returns
+- `GoogleTextResponse`: The generated content response.
+"""
 function generate_content(
-    provider::GoogleProvider, model_name::String, input::String; kwargs...
+    provider::AbstractGoogleProvider, model_name::String, prompt::String; kwargs...
 )
-    url = "$(provider.base_url)/models/$model_name:generateContent?key=$(provider.api_key)"
+    endpoint = "models/$model_name:generateContent"
+
     generation_config = Dict{String,Any}()
     for (key, value) in kwargs
-        generation_config[string(key)] = value
+        if key != :safety_settings
+            generation_config[string(key)] = value
+        end
     end
 
+    if haskey(kwargs, :safety_settings)
+        safety_settings = kwargs[:safety_settings]
+    else
+        safety_settings = nothing
+    end
     body = Dict(
-        "contents" => [Dict("parts" => [Dict("text" => input)])],
+        "contents" => [Dict("parts" => [Dict("text" => prompt)])],
         "generationConfig" => generation_config,
-    )
-    response = HTTP.post(
-        url; headers=Dict("Content-Type" => "application/json"), body=JSON3.write(body)
-    )
-    if response.status >= 200 && response.status < 300
-        return _parse_response(response)
-    else
-        error("Request failed with status $(response.status): $(String(response.body))")
-    end
-end
-function generate_content(api_key::String, model_name::String, input::String; kwargs...)
-    return generate_content(GoogleProvider(; api_key), model_name, input; kwargs...)
-end
-
-function count_tokens(provider::GoogleProvider, model_name::String, input::String)
-    url = "$(provider.base_url)/models/$model_name:countTokens?key=$(provider.api_key)"
-    body = Dict("contents" => [Dict("parts" => [Dict("text" => input)])])
-    response = HTTP.post(
-        url; headers=Dict("Content-Type" => "application/json"), body=JSON3.write(body)
+        "safetySettings" => safety_settings,
     )
 
-    if response.status >= 200 && response.status < 300
-        parsed_response = JSON3.read(response.body)
-        total_tokens = get(parsed_response, "totalTokens")
-        return total_tokens
-    else
-        error("Request failed with status $(response.status): $(String(response.body))")
-    end
+    response = _request(provider, endpoint, :POST, body)
+    return _parse_response(response)
 end
-function count_tokens(api_key::String, model_name::String, input::String)
-    return count_tokens(GoogleProvider(; api_key), model_name, input)
+function generate_content(api_key::String, model_name::String, prompt::String; kwargs...)
+    return generate_content(GoogleProvider(; api_key), model_name, prompt; kwargs...)
+end
+
+function generate_content(
+    provider::AbstractGoogleProvider,
+    model_name::String,
+    prompt::String,
+    image_path::String;
+    kwargs...,
+)
+    image_data = open(base64encode, image_path)
+    body = Dict(
+        "contents" => [
+            Dict(
+                "parts" => [
+                    Dict("text" => prompt),
+                    Dict(
+                        "inline_data" =>
+                            Dict("mime_type" => "image/jpeg", "data" => image_data),
+                    ),
+                ],
+            ),
+        ],
+        "generationConfig" =>
+            Dict([string(k) => v for (k, v) in kwargs if k != :safety_settings]),
+        "safetySettings" => get(kwargs, :safety_settings, nothing),
+    )
+
+    response = _request(provider, "models/$model_name:generateContent", :POST, body)
+    return _parse_response(response)
+end
+function generate_content(
+    api_key::String, model_name::String, prompt::String, image_path::String; kwargs...
+)
+    return generate_content(
+        GoogleProvider(; api_key), model_name, prompt, image_path; kwargs...
+    )
+end
+
+function generate_content(
+    provider::AbstractGoogleProvider,
+    model_name::String,
+    conversation::Vector{Dict{Symbol,Any}};
+    kwargs...,
+)
+    endpoint = "models/$model_name:generateContent"
+
+    contents = []
+    for turn in conversation
+        role = turn[:role]
+        parts = turn[:parts]
+        push!(contents, Dict("role" => role, "parts" => parts))
+    end
+
+    generation_config = Dict{String,Any}()
+    for (key, value) in kwargs
+        if key != :safety_settings
+            generation_config[string(key)] = value
+        end
+    end
+
+    safety_settings = get(kwargs, :safety_settings, nothing)
+    body = Dict(
+        "contents" => contents,
+        "generationConfig" => generation_config,
+        "safetySettings" => safety_settings,
+    )
+
+    response = _request(provider, endpoint, :POST, body)
+    return _parse_response(response)
+end
+function generate_content(
+    api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; kwargs...
+)
+    return generate_content(GoogleProvider(; api_key), model_name, conversation; kwargs...)
+end
+
+"""
+    count_tokens(provider::AbstractGoogleProvider, model_name::String, prompt::String) -> Int
+    count_tokens(api_key::String, model_name::String, prompt::String) -> Int
+
+Calculate the number of tokens generated by the specified model for a given prompt string.
+
+# Arguments
+- `provider::AbstractGoogleProvider`: The provider instance containing API key and base URL information.
+- `api_key::String`: Your Google API key as a string. 
+- `model_name::String`: The name of the model to use for generating content. 
+- `prompt::String`: The prompt prompt based on which the text is generated.
+
+# Returns
+- `Int`: The total number of tokens that the given prompt string would be broken into by the specified model's tokenizer.
+"""
+function count_tokens(provider::AbstractGoogleProvider, model_name::String, prompt::String)
+    endpoint = "models/$model_name:countTokens"
+    body = Dict("contents" => [Dict("parts" => [Dict("text" => prompt)])])
+    response = _request(provider, endpoint, :POST, body)
+    total_tokens = get(JSON3.read(response.body), "totalTokens", 0)
+    return total_tokens
+end
+function count_tokens(api_key::String, model_name::String, prompt::String)
+    return count_tokens(GoogleProvider(; api_key), model_name, prompt)
 end
 
 #TODO: Do we want an embeddings struct, or just the array of embeddings?
-function embed_content(provider::GoogleProvider, model_name::String, input::String)
-    url = "$(provider.base_url)/models/$model_name:embedContent?key=$(provider.api_key)"
+"""
+    embed_content(provider::AbstractGoogleProvider, model_name::String, prompt::String) -> GoogleEmbeddingResponse
+    embed_content(api_key::String, model_name::String, prompt::String) -> GoogleEmbeddingResponse
+
+Generate an embedding for the given prompt text using the specified model.
+
+# Arguments
+- `provider::AbstractGoogleProvider`: The provider instance containing API key and base URL information.
+- `api_key::String`: Your Google API key as a string. 
+- `model_name::String`: The name of the model to use for generating content. 
+- `prompt::String`: The prompt prompt based on which the text is generated.
+
+# Returns
+- `GoogleEmbeddingResponse`
+"""
+function embed_content(provider::AbstractGoogleProvider, model_name::String, prompt::String)
+    endpoint = "models/$model_name:embedContent"
     body = Dict(
         "model" => "models/$model_name",
-        "content" => Dict("parts" => [Dict("text" => input)]),
+        "content" => Dict("parts" => [Dict("text" => prompt)]),
     )
-    response = HTTP.post(
-        url; headers=Dict("Content-Type" => "application/json"), body=JSON3.write(body)
+    response = _request(provider, endpoint, :POST, body)
+    embedding_values = get(
+        get(JSON3.read(response.body), "embedding", Dict()), "values", Vector{Float64}()
     )
-
-    if response.status >= 200 && response.status < 300
-        parsed_response = JSON3.read(response.body)
-        embedding_values = get(
-            get(parsed_response, "embedding", Dict()), "values", Vector{Float64}()
-        )
-        return GoogleEmbeddingResponse(embedding_values)
-    else
-        error("Request failed with status $(response.status): $(String(response.body))")
-    end
+    return GoogleEmbeddingResponse(embedding_values, response.status)
 end
-function embed_content(api_key::String, model_name::String, input::String)
-    return embed_content(GoogleProvider(; api_key), model_name, input)
+function embed_content(api_key::String, model_name::String, prompt::String)
+    return embed_content(GoogleProvider(; api_key), model_name, prompt)
 end
 
-function list_models(provider::GoogleProvider)
-    url = "$(provider.base_url)/models?key=$(provider.api_key)"
+"""
+    list_models(provider::AbstractGoogleProvider) -> Vector{Dict}
+    list_models(api_key::String) -> Vector{Dict}
 
-    response = HTTP.get(url; headers=Dict("Content-Type" => "application/json"))
+Retrieve a list of available models along with their details from the Google AI API.
 
-    if response.status >= 200 && response.status < 300
-        parsed_response = JSON3.read(response.body)
-        models = [
-            Dict(
-                :name => replace(model.name, "models/" => ""),
-                :version => model.version,
-                :display_name => model.displayName,
-                :description => model.description,
-                :input_token_limit => model.inputTokenLimit,
-                :output_token_limit => model.outputTokenLimit,
-                :supported_generation_methods => model.supportedGenerationMethods,
-                :temperature => get(model, :temperature, nothing),
-                :topP => get(model, :topP, nothing),
-                :topK => get(model, :topK, nothing),
-            ) for model in parsed_response.models
-        ]
-        return models
-    else
-        error("Request failed with status $(response.status): $(String(response.body))")
-    end
+# Arguments
+- `provider::AbstractGoogleProvider`: The provider instance containing API key and base URL information.
+- `api_key::String`: Your Google API key as a string. 
+
+# Returns
+- `Vector{Dict}`: A list of dictionaries, each containing details about an available model.
+"""
+function list_models(provider::AbstractGoogleProvider)
+    endpoint = "models"
+    response = _request(provider, endpoint, :GET, Dict())
+    parsed_response = JSON3.read(response.body)
+    models = [
+        Dict(
+            :name => replace(model.name, "models/" => ""),
+            :version => model.version,
+            :display_name => model.displayName,
+            :description => model.description,
+            :prompt_token_limit => model.inputTokenLimit,
+            :output_token_limit => model.outputTokenLimit,
+            :supported_generation_methods => model.supportedGenerationMethods,
+            :temperature => get(model, :temperature, nothing),
+            :topP => get(model, :topP, nothing),
+            :topK => get(model, :topK, nothing),
+        ) for model in parsed_response.models
+    ]
+    return models
 end
 list_models(api_key::String) = list_models(GoogleProvider(; api_key))
 

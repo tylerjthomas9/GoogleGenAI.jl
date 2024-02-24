@@ -13,7 +13,7 @@ makedocs(;
         canonical="https://tylerjthomas9.github.io/GoogleGenAI.jl",
         assets=String[],
     ),
-    pages=["Home" => "index.md"],
+    pages=["Home" => "index.md", "API" => "api.md"],
     warnonly=true,
 )
 
