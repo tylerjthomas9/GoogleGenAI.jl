@@ -31,12 +31,15 @@ struct BlockedPromptException <: Exception end
 
 function status_error(resp, log=nothing)
     logs = !isnothing(log) ? ": $log" : ""
-    return error("Request failed with status $(resp.status) $(resp.message)$logs")
+    return error("Request failed with status $(resp.status) $(resp.message) $logs")
 end
 
 function _request(
     provider::AbstractGoogleProvider, endpoint::String, method::Symbol, body::Dict
 )
+    if isempty(provider.api_key)
+        throw(ArgumentError("api cannot be empty"))
+    end
     url = "$(provider.base_url)/$(provider.api_version)/$endpoint?key=$(provider.api_key)"
     headers = Dict("Content-Type" => "application/json")
     serialized_body = isempty(body) ? UInt8[] : JSON3.write(body)
