@@ -1,4 +1,5 @@
  [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
+ [![CI](https://github.com/tylerjthomas9/GoogleGenAI.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/tylerjthomas9/GoogleGenAI.jl/actions/workflows/CI.yml)
  [![Code Style: Blue](https://img.shields.io/badge/code%20style-blue-4495d1.svg)](https://github.com/invenia/BlueStyle)
  [![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://tylerjthomas9.github.io/GoogleGenAI.jl)
 
@@ -108,11 +109,25 @@ outputs
 
 ```julia
 using GoogleGenAI
-embeddings = create_embeddings(ENV["GOOGLE_API_KEY"], "gemini-pro", "Hello")
+embeddings = embed_content(ENV["GOOGLE_API_KEY"], "embedding-001", "Hello")
 println(size(embeddings.values))
 ```
 outputs
 ```julia
+(768,)
+```
+
+```julia
+using GoogleGenAI
+embeddings = embed_content(ENV["GOOGLE_API_KEY"], "embedding-001", ["Hello", "world"])
+println(embeddings.response_status)
+println(size(embeddings.values[1]))
+println(size(embeddings.values[2]))
+```
+outputs
+```julia
+200
+(768,)
 (768,)
 ```
 

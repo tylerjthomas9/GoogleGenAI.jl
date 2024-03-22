@@ -25,30 +25,21 @@ Base.@kwdef struct GoogleProvider <: AbstractGoogleProvider
     base_url::String = "https://generativelanguage.googleapis.com"
     api_version::String = "v1beta"
 end
-struct GoogleTextResponse
-    candidates::Vector{Dict{Symbol,Any}}
-    safety_ratings::Dict{Pair{Symbol,String},Pair{Symbol,String}}
-    text::String
-    response_status::Int
-    finish_reason::String
-end
-
-struct GoogleEmbeddingResponse
-    values::Vector{Float64}
-    response_status::Int
-end
 
 #TODO: Add support for exception
 struct BlockedPromptException <: Exception end
 
 function status_error(resp, log=nothing)
     logs = !isnothing(log) ? ": $log" : ""
-    return error("Request failed with status $(resp.status) $(resp.message)$logs")
+    return error("Request failed with status $(resp.status) $(resp.message) $logs")
 end
 
 function _request(
     provider::AbstractGoogleProvider, endpoint::String, method::Symbol, body::Dict
 )
+    if isempty(provider.api_key)
+        throw(ArgumentError("api cannot be empty"))
+    end
     url = "$(provider.base_url)/$(provider.api_version)/$endpoint?key=$(provider.api_key)"
     headers = Dict("Content-Type" => "application/json")
     serialized_body = isempty(body) ? UInt8[] : JSON3.write(body)
@@ -75,18 +66,23 @@ function _parse_response(response::HTTP.Messages.Response)
     candidates = [Dict(i) for i in parsed_response[:candidates]]
     finish_reason = candidates[end][:finishReason]
     safety_rating = Dict(parsed_response.promptFeedback.safetyRatings)
-    return GoogleTextResponse(
-        candidates, safety_rating, concatenated_texts, response.status, finish_reason
+
+    return (
+        candidates=candidates,
+        safety_ratings=safety_rating,
+        text=concatenated_texts,
+        response_status=response.status,
+        finish_reason=finish_reason,
     )
 end
 
 #TODO: Should we use different function names?
 """
-    generate_content(provider::AbstractGoogleProvider, model_name::String, prompt::String, image_path::String; kwargs...) -> GoogleTextResponse
-    generate_content(api_key::String, model_name::String, prompt::String, image_path::String; kwargs...) -> GoogleTextResponse
+    generate_content(provider::AbstractGoogleProvider, model_name::String, prompt::String, image_path::String; kwargs...) -> NamedTuple
+    generate_content(api_key::String, model_name::String, prompt::String, image_path::String; kwargs...) -> NamedTuple
     
-    generate_content(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; kwargs...) -> GoogleTextResponse
-    generate_content(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; kwargs...) -> GoogleTextResponse
+    generate_content(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; kwargs...) -> NamedTuple
+    generate_content(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; kwargs...) -> NamedTuple
 
 Generate content based on a combination of text prompt and an image (optional).
 
@@ -105,7 +101,12 @@ Generate content based on a combination of text prompt and an image (optional).
 - `safety_settings::Vector{Dict}` (optional): Settings to control the safety aspects of the generated content, such as filtering out unsafe or inappropriate content.
 
 # Returns
-- `GoogleTextResponse`: The generated content response.
+- `NamedTuple`: A named tuple containing the following keys:
+    - `candidates`: A vector of dictionaries, each representing a generation candidate.
+    - `safety_ratings`: A dictionary containing safety ratings for the prompt feedback.
+    - `text`: A string representing the concatenated text from all candidates.
+    - `response_status`: An integer representing the HTTP response status code.
+    - `finish_reason`: A string indicating the reason why the generation process was finished.
 """
 function generate_content(
     provider::AbstractGoogleProvider, model_name::String, prompt::String; kwargs...
@@ -237,10 +238,11 @@ function count_tokens(api_key::String, model_name::String, prompt::String)
     return count_tokens(GoogleProvider(; api_key), model_name, prompt)
 end
 
-#TODO: Do we want an embeddings struct, or just the array of embeddings?
 """
-    embed_content(provider::AbstractGoogleProvider, model_name::String, prompt::String) -> GoogleEmbeddingResponse
-    embed_content(api_key::String, model_name::String, prompt::String) -> GoogleEmbeddingResponse
+    embed_content(provider::AbstractGoogleProvider, model_name::String, prompt::String) -> NamedTuple
+    embed_content(api_key::String, model_name::String, prompt::String) -> NamedTuple
+    embed_content(provider::AbstractGoogleProvider, model_name::String, prompts::Vector{String}) -> Vector{NamedTuple}
+    embed_content(api_key::String, model_name::String, prompts::Vector{String}) -> Vector{NamedTuple}
 
 Generate an embedding for the given prompt text using the specified model.
 
@@ -251,7 +253,9 @@ Generate an embedding for the given prompt text using the specified model.
 - `prompt::String`: The prompt prompt based on which the text is generated.
 
 # Returns
-- `GoogleEmbeddingResponse`
+- `NamedTuple`: A named tuple containing the following keys:
+    - `values`: A vector of `Float64` representing the embedding values for the given prompt.
+    - `response_status`: An integer representing the HTTP response status code.
 """
 function embed_content(provider::AbstractGoogleProvider, model_name::String, prompt::String)
     endpoint = "models/$model_name:embedContent"
@@ -263,10 +267,33 @@ function embed_content(provider::AbstractGoogleProvider, model_name::String, pro
     embedding_values = get(
         get(JSON3.read(response.body), "embedding", Dict()), "values", Vector{Float64}()
     )
-    return GoogleEmbeddingResponse(embedding_values, response.status)
+    return (values=embedding_values, response_status=response.status)
 end
 function embed_content(api_key::String, model_name::String, prompt::String)
     return embed_content(GoogleProvider(; api_key), model_name, prompt)
+end
+
+function embed_content(
+    provider::AbstractGoogleProvider, model_name::String, prompts::Vector{String}
+)
+    endpoint = "models/$model_name:batchEmbedContents"
+    body = Dict(
+        "requests" => [
+            Dict(
+                "model" => "models/$model_name",
+                "content" => Dict("parts" => [Dict("text" => prompt)]),
+            ) for prompt in prompts
+        ],
+    )
+    response = _request(provider, endpoint, :POST, body)
+    embedding_values = [
+        get(embedding, "values", Vector{Float64}()) for
+        embedding in JSON3.read(response.body)["embeddings"]
+    ]
+    return (values=embedding_values, response_status=response.status)
+end
+function embed_content(api_key::String, model_name::String, prompts::Vector{String})
+    return embed_content(GoogleProvider(; api_key), model_name, prompts)
 end
 
 """
