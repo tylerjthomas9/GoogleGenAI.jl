@@ -273,19 +273,22 @@ function embed_content(api_key::String, model_name::String, prompt::String)
     return embed_content(GoogleProvider(; api_key), model_name, prompt)
 end
 
-function embed_content(provider::AbstractGoogleProvider, model_name::String, prompts::Vector{String})
+function embed_content(
+    provider::AbstractGoogleProvider, model_name::String, prompts::Vector{String}
+)
     endpoint = "models/$model_name:batchEmbedContents"
     body = Dict(
         "requests" => [
             Dict(
                 "model" => "models/$model_name",
-                "content" => Dict("parts" => [Dict("text" => prompt)])
+                "content" => Dict("parts" => [Dict("text" => prompt)]),
             ) for prompt in prompts
-        ]
+        ],
     )
     response = _request(provider, endpoint, :POST, body)
     embedding_values = [
-        get(embedding, "values", Vector{Float64}()) for embedding in JSON3.read(response.body)["embeddings"]
+        get(embedding, "values", Vector{Float64}()) for
+        embedding in JSON3.read(response.body)["embeddings"]
     ]
     return (values=embedding_values, response_status=response.status)
 end
