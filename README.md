@@ -108,11 +108,25 @@ outputs
 
 ```julia
 using GoogleGenAI
-embeddings = create_embeddings(ENV["GOOGLE_API_KEY"], "gemini-pro", "Hello")
+embeddings = embed_content(ENV["GOOGLE_API_KEY"], "embedding-001", "Hello")
 println(size(embeddings.values))
 ```
 outputs
 ```julia
+(768,)
+```
+
+```julia
+using GoogleGenAI
+embeddings = embed_content(ENV["GOOGLE_API_KEY"], "embedding-001", ["Hello", "world"])
+println(embeddings.response_status)
+println(size(embeddings.values[1]))
+println(size(embeddings.values[2]))
+```
+outputs
+```julia
+200
+(768,)
 (768,)
 ```
 

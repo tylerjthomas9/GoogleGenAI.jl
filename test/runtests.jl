@@ -30,6 +30,10 @@ if haskey(ENV, "GOOGLE_API_KEY")
         embeddings = embed_content(secret_key, "embedding-001", "Hello")
         @test size(embeddings.values) == (768,)
 
+        embeddings = embed_content(secret_key, "embedding-001", ["Hello", "world"])
+        @test size(embeddings.values[1]) == (768,)
+        @test size(embeddings.values[2]) == (768,)
+
         models = list_models(secret_key)
         @test length(models) > 0
         @test haskey(models[1], :name)
