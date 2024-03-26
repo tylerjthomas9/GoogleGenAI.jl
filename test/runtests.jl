@@ -6,8 +6,9 @@ if haskey(ENV, "GOOGLE_API_KEY")
     const secret_key = ENV["GOOGLE_API_KEY"]
 
     @testset "GoogleGenAI.jl" begin
+        api_kwargs = (max_output_tokens=50,)
         # Generate text from text
-        response = generate_content(secret_key, "gemini-pro", "Hello"; max_output_tokens=50)
+        response = generate_content(secret_key, "gemini-pro", "Hello"; api_kwargs)
 
         # Generate text from text+image
         response = generate_content(
@@ -15,13 +16,13 @@ if haskey(ENV, "GOOGLE_API_KEY")
             "gemini-pro-vision",
             "What is this picture?",
             "example.jpg";
-            max_output_tokens=50,
+            api_kwargs
         )
 
         # Multi-turn conversation
         conversation = [Dict(:role => "user", :parts => [Dict(:text => "Hello")])]
         response = generate_content(
-            secret_key, "gemini-pro", conversation; max_output_tokens=50
+            secret_key, "gemini-pro", conversation; api_kwargs
         )
 
         n_tokens = count_tokens(secret_key, "gemini-pro", "Hello")
