@@ -38,12 +38,13 @@ outputs
 ```
 
 ```julia
-response = generate_content(secret_key, model, prompt; max_output_tokens=10)
+api_kwargs = (max_output_tokens=50,)
+response = generate_content(secret_key, model, prompt; api_kwargs)
 println(response.text)
 ```
 outputs
 ```julia
-"Hello! How can I assist you today?"
+"Hello there, how may I assist you today?"
 ```
 
 ```julia
@@ -66,6 +67,7 @@ outputs
 ```julia
 # Define the provider with your API key (placeholder here)
 provider = GoogleProvider(api_key=ENV["GOOGLE_API_KEY"])
+api_kwargs = (max_output_tokens=50,)
 model_name = "gemini-pro"
 conversation = [
     Dict(:role => "user", :parts => [Dict(:text => "When was Julia 1.0 released?")])
@@ -76,7 +78,7 @@ push!(conversation, Dict(:role => "model", :parts => [Dict(:text => response.tex
 println("Model: ", response.text) 
 
 push!(conversation, Dict(:role => "user", :parts => [Dict(:text => "Who created the language?")]))
-response = generate_content(provider, model_name, conversation, max_output_tokens=100)
+response = generate_content(provider, model_name, conversation; api_kwargs)
 println("Model: ", response.text)
 ```
 outputs
@@ -138,6 +140,10 @@ end
 ```
 outputs
 ```julia
+gemini-1.0-pro
+gemini-1.0-pro-001
+gemini-1.0-pro-latest
+gemini-1.0-pro-vision-latest
 gemini-pro
 gemini-pro-vision
 ```
@@ -157,5 +163,6 @@ safety_settings = [
 ]
 model = "gemini-pro"
 prompt = "Hello"
-response = generate_content(secret_key, model, prompt; safety_settings=safety_settings)
+api_kwargs = (safety_settings=safety_settings,)
+response = generate_content(secret_key, model, prompt; api_kwargs)
 ```
