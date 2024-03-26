@@ -229,7 +229,7 @@ function generate_content(
             generation_config[string(key)] = getproperty(api_kwargs, key)
         end
     end
-    
+
     body = Dict(
         "contents" => contents,
         "generationConfig" => generation_config,

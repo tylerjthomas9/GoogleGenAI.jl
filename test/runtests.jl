@@ -16,14 +16,12 @@ if haskey(ENV, "GOOGLE_API_KEY")
             "gemini-pro-vision",
             "What is this picture?",
             "example.jpg";
-            api_kwargs
+            api_kwargs,
         )
 
         # Multi-turn conversation
         conversation = [Dict(:role => "user", :parts => [Dict(:text => "Hello")])]
-        response = generate_content(
-            secret_key, "gemini-pro", conversation; api_kwargs
-        )
+        response = generate_content(secret_key, "gemini-pro", conversation; api_kwargs)
 
         n_tokens = count_tokens(secret_key, "gemini-pro", "Hello")
         @test n_tokens == 1
