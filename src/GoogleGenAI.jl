@@ -84,11 +84,11 @@ end
 
 #TODO: Should we use different function names?
 """
-    generate_content(provider::AbstractGoogleProvider, model_name::String, prompt::String, image_path::String; api_kwargs=NamedTuple(), https_kwargs=NamedTuple()) -> NamedTuple
-    generate_content(api_key::String, model_name::String, prompt::String, image_path::String; api_kwargs=NamedTuple(), https_kwargs=NamedTuple()) -> NamedTuple
+    generate_content(provider::AbstractGoogleProvider, model_name::String, prompt::String, image_path::String; api_kwargs=NamedTuple(), http_kwargs=NamedTuple()) -> NamedTuple
+    generate_content(api_key::String, model_name::String, prompt::String, image_path::String; api_kwargs=NamedTuple(), http_kwargs=NamedTuple()) -> NamedTuple
     
-    generate_content(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; api_kwargs=NamedTuple(), https_kwargs=NamedTuple()) -> NamedTuple
-    generate_content(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; api_kwargs=NamedTuple(), https_kwargs=NamedTuple()) -> NamedTuple
+    generate_content(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; api_kwargs=NamedTuple(), http_kwargs=NamedTuple()) -> NamedTuple
+    generate_content(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; api_kwargs=NamedTuple(), http_kwargs=NamedTuple()) -> NamedTuple
 
 Generate content based on a combination of text prompt and an image (optional).
 
@@ -122,7 +122,7 @@ function generate_content(
     model_name::String,
     prompt::String;
     api_kwargs=NamedTuple(),
-    https_kwargs=NamedTuple(),
+    http_kwargs=NamedTuple(),
 )
     endpoint = "models/$model_name:generateContent"
 
@@ -141,7 +141,7 @@ function generate_content(
         "safetySettings" => safety_settings,
     )
 
-    response = _request(provider, endpoint, :POST, body; https_kwargs...)
+    response = _request(provider, endpoint, :POST, body; http_kwargs...)
     return _parse_response(response)
 end
 function generate_content(
@@ -149,10 +149,10 @@ function generate_content(
     model_name::String,
     prompt::String;
     api_kwargs=NamedTuple(),
-    https_kwargs=NamedTuple(),
+    http_kwargs=NamedTuple(),
 )
     return generate_content(
-        GoogleProvider(; api_key), model_name, prompt; api_kwargs, https_kwargs
+        GoogleProvider(; api_key), model_name, prompt; api_kwargs, http_kwargs
     )
 end
 
@@ -162,7 +162,7 @@ function generate_content(
     prompt::String,
     image_path::String;
     api_kwargs=NamedTuple(),
-    https_kwargs=NamedTuple(),
+    http_kwargs=NamedTuple(),
 )
     image_data = open(base64encode, image_path)
     safety_settings = get(api_kwargs, :safety_settings, nothing)
@@ -189,7 +189,7 @@ function generate_content(
     )
 
     response = _request(
-        provider, "models/$model_name:generateContent", :POST, body; https_kwargs...
+        provider, "models/$model_name:generateContent", :POST, body; http_kwargs...
     )
     return _parse_response(response)
 end
@@ -199,10 +199,10 @@ function generate_content(
     prompt::String,
     image_path::String;
     api_kwargs=NamedTuple(),
-    https_kwargs=NamedTuple(),
+    http_kwargs=NamedTuple(),
 )
     return generate_content(
-        GoogleProvider(; api_key), model_name, prompt, image_path; api_kwargs, https_kwargs
+        GoogleProvider(; api_key), model_name, prompt, image_path; api_kwargs, http_kwargs
     )
 end
 
@@ -211,7 +211,7 @@ function generate_content(
     model_name::String,
     conversation::Vector{Dict{Symbol,Any}};
     api_kwargs=NamedTuple(),
-    https_kwargs=NamedTuple(),
+    http_kwargs=NamedTuple(),
 )
     endpoint = "models/$model_name:generateContent"
 
@@ -236,7 +236,7 @@ function generate_content(
         "safetySettings" => safety_settings,
     )
 
-    response = _request(provider, endpoint, :POST, body; https_kwargs)
+    response = _request(provider, endpoint, :POST, body; http_kwargs...)
     return _parse_response(response)
 end
 function generate_content(
@@ -244,10 +244,10 @@ function generate_content(
     model_name::String,
     conversation::Vector{Dict{Symbol,Any}};
     api_kwargs=NamedTuple(),
-    https_kwargs=NamedTuple(),
+    http_kwargs=NamedTuple(),
 )
     return generate_content(
-        GoogleProvider(; api_key), model_name, conversation; api_kwargs, https_kwargs
+        GoogleProvider(; api_key), model_name, conversation; api_kwargs, http_kwargs
     )
 end
 
@@ -278,10 +278,10 @@ function count_tokens(api_key::String, model_name::String, prompt::String)
 end
 
 """
-    embed_content(provider::AbstractGoogleProvider, model_name::String, prompt::String https_kwargs=NamedTuple()) -> NamedTuple
-    embed_content(api_key::String, model_name::String, prompt::String https_kwargs=NamedTuple()) -> NamedTuple
-    embed_content(provider::AbstractGoogleProvider, model_name::String, prompts::Vector{String} https_kwargs=NamedTuple()) -> Vector{NamedTuple}
-    embed_content(api_key::String, model_name::String, prompts::Vector{String}, https_kwargs=NamedTuple()) -> Vector{NamedTuple}
+    embed_content(provider::AbstractGoogleProvider, model_name::String, prompt::String http_kwargs=NamedTuple()) -> NamedTuple
+    embed_content(api_key::String, model_name::String, prompt::String http_kwargs=NamedTuple()) -> NamedTuple
+    embed_content(provider::AbstractGoogleProvider, model_name::String, prompts::Vector{String} http_kwargs=NamedTuple()) -> Vector{NamedTuple}
+    embed_content(api_key::String, model_name::String, prompts::Vector{String}, http_kwargs=NamedTuple()) -> Vector{NamedTuple}
 
 Generate an embedding for the given prompt text using the specified model.
 
@@ -303,30 +303,30 @@ function embed_content(
     provider::AbstractGoogleProvider,
     model_name::String,
     prompt::String;
-    https_kwargs=NamedTuple(),
+    http_kwargs=NamedTuple(),
 )
     endpoint = "models/$model_name:embedContent"
     body = Dict(
         "model" => "models/$model_name",
         "content" => Dict("parts" => [Dict("text" => prompt)]),
     )
-    response = _request(provider, endpoint, :POST, body; https_kwargs...)
+    response = _request(provider, endpoint, :POST, body; http_kwargs...)
     embedding_values = get(
         get(JSON3.read(response.body), "embedding", Dict()), "values", Vector{Float64}()
     )
     return (values=embedding_values, response_status=response.status)
 end
 function embed_content(
-    api_key::String, model_name::String, prompt::String, https_kwargs=NamedTuple()
+    api_key::String, model_name::String, prompt::String, http_kwargs=NamedTuple()
 )
-    return embed_content(GoogleProvider(; api_key), model_name, prompt; https_kwargs...)
+    return embed_content(GoogleProvider(; api_key), model_name, prompt; http_kwargs...)
 end
 
 function embed_content(
     provider::AbstractGoogleProvider,
     model_name::String,
     prompts::Vector{String},
-    https_kwargs=NamedTuple(),
+    http_kwargs=NamedTuple(),
 )
     endpoint = "models/$model_name:batchEmbedContents"
     body = Dict(
@@ -337,7 +337,7 @@ function embed_content(
             ) for prompt in prompts
         ],
     )
-    response = _request(provider, endpoint, :POST, body; https_kwargs...)
+    response = _request(provider, endpoint, :POST, body; http_kwargs...)
     embedding_values = [
         get(embedding, "values", Vector{Float64}()) for
         embedding in JSON3.read(response.body)["embeddings"]
@@ -345,9 +345,9 @@ function embed_content(
     return (values=embedding_values, response_status=response.status)
 end
 function embed_content(
-    api_key::String, model_name::String, prompts::Vector{String}, https_kwargs=NamedTuple()
+    api_key::String, model_name::String, prompts::Vector{String}, http_kwargs=NamedTuple()
 )
-    return embed_content(GoogleProvider(; api_key), model_name, prompts; https_kwargs...)
+    return embed_content(GoogleProvider(; api_key), model_name, prompts; http_kwargs...)
 end
 
 """
