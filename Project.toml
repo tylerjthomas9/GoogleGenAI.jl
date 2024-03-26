@@ -10,7 +10,7 @@ HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 
 [compat]
-Aqua = "0.8"
+Aqua = "0.8.4"
 Base64 = "<0.0.1, 1"
 Dates = "<0.0.1, 1"
 HTTP = "1"
