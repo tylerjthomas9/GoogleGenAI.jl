@@ -10,7 +10,7 @@ if haskey(ENV, "GOOGLE_API_KEY")
         http_kwargs = (retries=2,)
         # Generate text from text
         response = generate_content(
-            secret_key, "gemini-pro", "Hello"; api_kwargs, http_kwargs
+            secret_key, "gemini-1.5-flash-latest", "Hello"; api_kwargs, http_kwargs
         )
 
         # Generate text from text+image
@@ -26,10 +26,10 @@ if haskey(ENV, "GOOGLE_API_KEY")
         # Multi-turn conversation
         conversation = [Dict(:role => "user", :parts => [Dict(:text => "Hello")])]
         response = generate_content(
-            secret_key, "gemini-pro", conversation; api_kwargs, http_kwargs
+            secret_key, "gemini-1.5-flash-latest", conversation; api_kwargs, http_kwargs
         )
 
-        n_tokens = count_tokens(secret_key, "gemini-pro", "Hello")
+        n_tokens = count_tokens(secret_key, "gemini-1.5-flash-latest", "Hello")
         @test n_tokens == 1
 
         embeddings = embed_content(secret_key, "embedding-001", "Hello")
