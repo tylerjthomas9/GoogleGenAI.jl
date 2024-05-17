@@ -33,14 +33,14 @@ Create a [secret API key in Google AI Studio](https://makersuite.google.com/)
 using GoogleGenAI
 
 secret_key = ENV["GOOGLE_API_KEY"]
-model = "gemini-pro"
+model = "gemini-1.5-flash-latest"
 prompt = "Hello"
 response = generate_content(secret_key, model, prompt)
 println(response.text)
 ```
 outputs
 ```julia
-"Hello there! How may I assist you today? Feel free to ask me any questions you may have or give me a command. I'm here to help! 😊"
+"Hello! 👋  How can I help you today? 😊"
 ```
 
 ```julia
@@ -50,7 +50,7 @@ println(response.text)
 ```
 outputs
 ```julia
-"Hello there, how may I assist you today?"
+"Hello! 👋  How can I help you today? 😊"
 ```
 
 ```julia
@@ -71,40 +71,40 @@ outputs
 ### Multi-turn conversations
 
 ```julia
-# Define the provider with your API key (placeholder here)
+using GoogleGenAI
+
 provider = GoogleProvider(api_key=ENV["GOOGLE_API_KEY"])
 api_kwargs = (max_output_tokens=50,)
-model_name = "gemini-pro"
+model = "gemini-1.5-flash-latest"
 conversation = [
     Dict(:role => "user", :parts => [Dict(:text => "When was Julia 1.0 released?")])
 ]
 
-response = generate_content(provider, model_name, conversation)
+response = generate_content(provider, model, conversation)
 push!(conversation, Dict(:role => "model", :parts => [Dict(:text => response.text)]))
 println("Model: ", response.text) 
 
 push!(conversation, Dict(:role => "user", :parts => [Dict(:text => "Who created the language?")]))
-response = generate_content(provider, model_name, conversation; api_kwargs)
+response = generate_content(provider, model, conversation; api_kwargs)
 println("Model: ", response.text)
 ```
 outputs
 ```julia
-"Model: August 8, 2018"
+"Model: Julia 1.0 was released on **August 8, 2018**."
 
-"Model: Jeff Bezanson, Alan Edelman, Viral B. Shah, Stefan Karpinski, and Keno Fischer
-
-Julia Computing, Inc. is the company that provides commercial support for Julia."
+"Model: Julia was created by a team of developers at MIT, led by **Jeff Bezanson, Stefan Karpinski, Viral B. Shah, and Alan Edelman**."
 ```
 
 ### Count Tokens
 ```julia
 using GoogleGenAI
-n_tokens = count_tokens(ENV["GOOGLE_API_KEY"], "gemini-pro", "Hello")
+model = "gemini-1.5-flash-latest"
+n_tokens = count_tokens(ENV["GOOGLE_API_KEY"], model, "The Julia programming language")
 println(n_tokens)
 ```
 outputs
 ```julia
-1
+4
 ```
 
 ### Create Embeddings
@@ -169,7 +169,7 @@ safety_settings = [
     Dict("category" => "HARM_CATEGORY_HARASSMENT", "threshold" => "BLOCK_MEDIUM_AND_ABOVE"),
     Dict("category" => "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold" => "BLOCK_LOW_AND_ABOVE")
 ]
-model = "gemini-pro"
+model = "gemini-1.5-flash-latest"
 prompt = "Hello"
 api_kwargs = (safety_settings=safety_settings,)
 response = generate_content(secret_key, model, prompt; api_kwargs)
