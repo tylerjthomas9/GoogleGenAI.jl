@@ -16,7 +16,7 @@ if haskey(ENV, "GOOGLE_API_KEY")
         # Generate text from text+image
         response = generate_content(
             secret_key,
-            "gemini-pro-vision",
+            "gemini-1.5-flash-latest",
             "What is this picture?",
             "example.jpg";
             api_kwargs,
