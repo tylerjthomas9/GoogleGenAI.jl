@@ -24,8 +24,8 @@ Pkg> add https://github.com/tylerjthomas9/GoogleGenAI.jl/
 
 ## Quick Start
 
-Create a [secret API key in Google AI Studio](https://makersuite.google.com/)
-
+1. Create a [secret API key in Google AI Studio](https://aistudio.google.com).
+2. Set the `GOOGLE_API_KEY` environment variable.
 
 ### Generate Content
 
@@ -57,7 +57,7 @@ outputs
 using GoogleGenAI
 
 secret_key = ENV["GOOGLE_API_KEY"]
-model = "gemini-pro-vision"
+model = "gemini-1.5-flash-latest"
 prompt = "What is this image?"
 image_path = "test/example.jpg"
 response = generate_content(secret_key, model, prompt, image_path)
@@ -146,14 +146,21 @@ end
 ```
 outputs
 ```julia
-gemini-1.0-pro
-gemini-1.0-pro-001
 gemini-1.0-pro-latest
-gemini-1.0-pro-vision-latest
-gemini-1.5-flash-latest
-gemini-1.5-pro-latest
+gemini-1.0-pro
 gemini-pro
-gemini-pro-vision
+gemini-1.0-pro-001
+gemini-1.5-pro-latest
+gemini-1.5-pro-001
+gemini-1.5-pro
+gemini-1.5-pro-exp-0801
+gemini-1.5-pro-exp-0827
+gemini-1.5-flash-latest
+gemini-1.5-flash-001
+gemini-1.5-flash-001-tuning
+gemini-1.5-flash
+gemini-1.5-flash-exp-0827
+gemini-1.5-flash-8b-exp-0827
 ```
 
 ### Safety Settings
