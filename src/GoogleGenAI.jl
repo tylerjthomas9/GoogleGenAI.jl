@@ -71,7 +71,11 @@ function _parse_response(response::HTTP.Messages.Response)
     concatenated_texts = join(all_texts, "")
     candidates = [Dict(i) for i in parsed_response[:candidates]]
     finish_reason = candidates[end][:finishReason]
-    safety_rating = Dict(parsed_response.candidates[end].safetyRatings)
+    safety_rating = if haskey(parsed_response.candidates[end], :safetyRatings)
+        Dict(parsed_response.candidates[end].safetyRatings)
+    else
+        Dict()
+    end
 
     return (
         candidates=candidates,

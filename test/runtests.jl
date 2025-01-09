@@ -6,17 +6,19 @@ if haskey(ENV, "GOOGLE_API_KEY")
     const secret_key = ENV["GOOGLE_API_KEY"]
 
     @testset "GoogleGenAI.jl" begin
+        model = "gemini-2.0-flash-exp"
+        embedding_model = "text-embedding-004"
         api_kwargs = (max_output_tokens=50,)
         http_kwargs = (retries=2,)
         # Generate text from text
         response = generate_content(
-            secret_key, "gemini-1.5-flash-latest", "Hello"; api_kwargs, http_kwargs
+            secret_key, model, "Hello"; api_kwargs, http_kwargs
         )
 
         # Generate text from text+image
         response = generate_content(
             secret_key,
-            "gemini-1.5-flash-latest",
+            model,
             "What is this picture?",
             "example.jpg";
             api_kwargs,
@@ -26,16 +28,16 @@ if haskey(ENV, "GOOGLE_API_KEY")
         # Multi-turn conversation
         conversation = [Dict(:role => "user", :parts => [Dict(:text => "Hello")])]
         response = generate_content(
-            secret_key, "gemini-1.5-flash-latest", conversation; api_kwargs, http_kwargs
+            secret_key, model, conversation; api_kwargs, http_kwargs
         )
 
-        n_tokens = count_tokens(secret_key, "gemini-1.5-flash-latest", "Hello")
+        n_tokens = count_tokens(secret_key, model, "Hello")
         @test n_tokens == 1
 
-        embeddings = embed_content(secret_key, "embedding-001", "Hello")
+        embeddings = embed_content(secret_key, embedding_model, "Hello")
         @test size(embeddings.values) == (768,)
 
-        embeddings = embed_content(secret_key, "embedding-001", ["Hello", "world"])
+        embeddings = embed_content(secret_key, embedding_model, ["Hello", "world"])
         @test size(embeddings.values[1]) == (768,)
         @test size(embeddings.values[2]) == (768,)
 
