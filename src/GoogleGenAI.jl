@@ -389,6 +389,72 @@ function list_models(provider::AbstractGoogleProvider)
 end
 list_models(api_key::String) = list_models(GoogleProvider(; api_key))
 
-export GoogleProvider, generate_content, count_tokens, embed_content, list_models
+"""
+    create_cached_content(
+        provider::AbstractGoogleProvider,
+        model_name::String,
+        content::Union{String,Vector{Dict{Symbol,Any}},Dict{String,Any}};
+        ttl::String="300s",
+        system_instruction::String="",
+        http_kwargs=NamedTuple()
+    ) -> NamedTuple
+
+Create a cached content resource that can be reused in subsequent requests.
+
+# Arguments
+- `provider::AbstractGoogleProvider`: The provider instance for API requests
+- `model_name::String`: The model to use (e.g. "gemini-1.5-flash-001")
+- `content`: Content to cache (string, conversation array, or raw content dict)
+- `ttl`: Time-to-live duration for the cache (default "300s")
+- `system_instruction`: Optional system instruction for the model
+"""
+function create_cached_content(
+    provider::AbstractGoogleProvider,
+    model_name::String,
+    content::Union{String,Vector{Dict{Symbol,Any}},Dict{String,Any}};
+    ttl::String="300s",
+    system_instruction::String="",
+    http_kwargs=NamedTuple(),
+)
+    endpoint = "cachedContents"
+
+    # Prepare the content structure
+    contents = if content isa String
+        [Dict("parts" => [Dict("text" => content)], "role" => "user")]
+    elseif content isa Vector
+        content
+    else
+        [content]  # Assume it's already formatted correctly
+    end
+
+    body = Dict{String,Any}(
+        "model" => "models/$model_name", "contents" => contents, "ttl" => ttl
+    )
+
+    if !isempty(system_instruction)
+        body["systemInstruction"] = Dict("parts" => [Dict("text" => system_instruction)])
+    end
+
+    response = _request(provider, endpoint, :POST, body; http_kwargs...)
+    return JSON3.read(response.body)
+end
+
+function create_cached_content(
+    api_key::String,
+    model_name::String,
+    content::Union{String,Vector{Dict{Symbol,Any}},Dict{String,Any}};
+    ttl::String="300s",
+    system_instruction::String="",
+    http_kwargs=NamedTuple(),
+)
+    return create_cached_content(
+        GoogleProvider(; api_key), model_name, content; ttl, system_instruction, http_kwargs
+    )
+end
+
+export GoogleProvider,
+    generate_content, count_tokens, embed_content, list_models, create_cached_content
+# list_cached_content,
+# generate_content_with_cache
 
 end # module GoogleGenAI

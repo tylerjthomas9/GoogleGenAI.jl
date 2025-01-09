@@ -43,6 +43,23 @@ if haskey(ENV, "GOOGLE_API_KEY")
         @test length(models) > 0
         @test haskey(models[1], :name)
     end
+
+    @testset "Content Caching" begin
+        model = "gemini-1.5-flash-002"
+        text = read("example.txt", String)^7
+        cache_result = create_cached_content(
+            secret_key,
+            model,
+            text;
+            ttl="30s",
+            system_instruction="You are Julia's Number 1 fan",
+        )
+        # api_kwargs = (max_output_tokens=50,)
+        # response1 = generate_content_with_cache(
+        #     secret_key, model, "What is the main topic?", cache_result.name; api_kwargs
+        # )
+        # println("Topic: ", response1.text)
+    end
 else
     @info "Skipping GoogleGenAI.jl tests because GOOGLE_API_KEY is not set"
 end
