@@ -11,9 +11,7 @@ if haskey(ENV, "GOOGLE_API_KEY")
         api_kwargs = (max_output_tokens=50,)
         http_kwargs = (retries=2,)
         # Generate text from text
-        response = generate_content(
-            secret_key, model, "Hello"; api_kwargs, http_kwargs
-        )
+        response = generate_content(secret_key, model, "Hello"; api_kwargs, http_kwargs)
 
         # Generate text from text+image
         response = generate_content(
