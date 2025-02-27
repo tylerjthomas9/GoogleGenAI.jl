@@ -13,12 +13,12 @@ abstract type AbstractGoogleProvider end
         api_version::String = "v1beta"
     end
 
-A configuration object used to set up and authenticate requests to the Google Generative Language API.
+    A configuration object used to set up and authenticate requests to the Google Generative Language API.
 
-# Fields
-- `api_key::String`: Your Google API key. 
-- `base_url::String`: The base URL for the Google Generative Language API. The default is set to `"https://generativelanguage.googleapis.com"`.
-- `api_version::String`: The version of the API you wish to access. The default is set to `"v1beta"`.
+    # Fields
+    - `api_key::String`: Your Google API key. 
+    - `base_url::String`: The base URL for the Google Generative Language API. The default is set to `"https://generativelanguage.googleapis.com"`.
+    - `api_version::String`: The version of the API you wish to access. The default is set to `"v1beta"`.
 """
 Base.@kwdef struct GoogleProvider <: AbstractGoogleProvider
     api_key::String = ""
@@ -26,12 +26,12 @@ Base.@kwdef struct GoogleProvider <: AbstractGoogleProvider
     api_version::String = "v1beta"
 end
 
-#TODO: Add support for exception
+# Custom exception for blocked prompts
 struct BlockedPromptException <: Exception end
 
 function status_error(resp, log=nothing)
     logs = !isnothing(log) ? ": $log" : ""
-    return error("Request failed with status $(resp.status) $(resp.message) $logs")
+    error("Request failed with status $(resp.status) $(resp.message) $logs")
 end
 
 function _request(
@@ -39,17 +39,21 @@ function _request(
     endpoint::String,
     method::Symbol,
     body::Dict;
-    http_kwargs...,
+    http_kwargs...
 )
     if isempty(provider.api_key)
-        throw(ArgumentError("api cannot be empty"))
+        throw(ArgumentError("api_key cannot be empty"))
     end
+
     url = "$(provider.base_url)/$(provider.api_version)/$endpoint?key=$(provider.api_key)"
     headers = Dict("Content-Type" => "application/json")
+
     serialized_body = isempty(body) ? UInt8[] : JSON3.write(body)
+
     response = HTTP.request(
         method, url; headers=headers, body=serialized_body, http_kwargs...
     )
+
     if response.status >= 400
         status_error(response, String(response.body))
     end
@@ -67,10 +71,23 @@ end
 
 function _parse_response(response::HTTP.Messages.Response)
     parsed_response = JSON3.read(response.body)
+
+    # If there's no "candidates" key, just return a fallback
+    if !haskey(parsed_response, :candidates)
+        return (
+            candidates = [],
+            safety_ratings = Dict(),
+            text = "",
+            response_status = response.status,
+            finish_reason = "UNKNOWN",
+        )
+    end
+
     all_texts = _extract_text(parsed_response)
     concatenated_texts = join(all_texts, "")
     candidates = [Dict(i) for i in parsed_response[:candidates]]
     finish_reason = candidates[end][:finishReason]
+
     safety_rating = if haskey(parsed_response.candidates[end], :safetyRatings)
         Dict(parsed_response.candidates[end].safetyRatings)
     else
@@ -86,7 +103,6 @@ function _parse_response(response::HTTP.Messages.Response)
     )
 end
 
-#TODO: Should we use different function names?
 """
     generate_content(provider::AbstractGoogleProvider, model_name::String, prompt::String, image_path::String; api_kwargs=NamedTuple(), http_kwargs=NamedTuple()) -> NamedTuple
     generate_content(api_key::String, model_name::String, prompt::String, image_path::String; api_kwargs=NamedTuple(), http_kwargs=NamedTuple()) -> NamedTuple
@@ -131,7 +147,6 @@ function generate_content(
     endpoint = "models/$model_name:generateContent"
 
     safety_settings = get(api_kwargs, :safety_settings, nothing)
-
     generation_config = Dict{String,Any}()
     for key in keys(api_kwargs)
         if key != :safety_settings
@@ -148,6 +163,7 @@ function generate_content(
     response = _request(provider, endpoint, :POST, body; http_kwargs...)
     return _parse_response(response)
 end
+
 function generate_content(
     api_key::String,
     model_name::String,
@@ -170,21 +186,20 @@ function generate_content(
 )
     image_data = open(base64encode, image_path)
     safety_settings = get(api_kwargs, :safety_settings, nothing)
+
     generation_config = Dict{String,Any}()
     for key in keys(api_kwargs)
         if key != :safety_settings
             generation_config[string(key)] = getproperty(api_kwargs, key)
         end
     end
+
     body = Dict(
         "contents" => [
             Dict(
                 "parts" => [
                     Dict("text" => prompt),
-                    Dict(
-                        "inline_data" =>
-                            Dict("mime_type" => "image/jpeg", "data" => image_data),
-                    ),
+                    Dict("inline_data" => Dict("mime_type" => "image/jpeg", "data" => image_data)),
                 ],
             ),
         ],
@@ -192,11 +207,10 @@ function generate_content(
         "safetySettings" => safety_settings,
     )
 
-    response = _request(
-        provider, "models/$model_name:generateContent", :POST, body; http_kwargs...
-    )
+    response = _request(provider, "models/$model_name:generateContent", :POST, body; http_kwargs...)
     return _parse_response(response)
 end
+
 function generate_content(
     api_key::String,
     model_name::String,
@@ -243,6 +257,7 @@ function generate_content(
     response = _request(provider, endpoint, :POST, body; http_kwargs...)
     return _parse_response(response)
 end
+
 function generate_content(
     api_key::String,
     model_name::String,
@@ -277,6 +292,7 @@ function count_tokens(provider::AbstractGoogleProvider, model_name::String, prom
     total_tokens = get(JSON3.read(response.body), "totalTokens", 0)
     return total_tokens
 end
+
 function count_tokens(api_key::String, model_name::String, prompt::String)
     return count_tokens(GoogleProvider(; api_key), model_name, prompt)
 end
@@ -316,20 +332,32 @@ function embed_content(
     )
     response = _request(provider, endpoint, :POST, body; http_kwargs...)
     embedding_values = get(
-        get(JSON3.read(response.body), "embedding", Dict()), "values", Vector{Float64}()
+        get(JSON3.read(response.body), "embedding", Dict()),
+        "values",
+        Vector{Float64}(),
     )
     return (values=embedding_values, response_status=response.status)
 end
+
 function embed_content(
-    api_key::String, model_name::String, prompt::String, http_kwargs=NamedTuple()
+    api_key::String,
+    model_name::String,
+    prompt::String;
+    http_kwargs=NamedTuple(),
 )
-    return embed_content(GoogleProvider(; api_key), model_name, prompt; http_kwargs...)
+    return embed_content(
+        GoogleProvider(; api_key), model_name, prompt; http_kwargs...
+    )
 end
 
+"""
+    embed_content(provider::AbstractGoogleProvider, model_name::String, prompts::Vector{String}; ...) -> NamedTuple
+Batch embedding for multiple prompts.
+"""
 function embed_content(
     provider::AbstractGoogleProvider,
     model_name::String,
-    prompts::Vector{String},
+    prompts::Vector{String};
     http_kwargs=NamedTuple(),
 )
     endpoint = "models/$model_name:batchEmbedContents"
@@ -348,10 +376,16 @@ function embed_content(
     ]
     return (values=embedding_values, response_status=response.status)
 end
+
 function embed_content(
-    api_key::String, model_name::String, prompts::Vector{String}, http_kwargs=NamedTuple()
+    api_key::String,
+    model_name::String,
+    prompts::Vector{String};
+    http_kwargs=NamedTuple(),
 )
-    return embed_content(GoogleProvider(; api_key), model_name, prompts; http_kwargs...)
+    return embed_content(
+        GoogleProvider(; api_key), model_name, prompts; http_kwargs...
+    )
 end
 
 """
@@ -371,6 +405,11 @@ function list_models(provider::AbstractGoogleProvider)
     endpoint = "models"
     response = _request(provider, endpoint, :GET, Dict())
     parsed_response = JSON3.read(response.body)
+
+    if !haskey(parsed_response, :models)
+        return Vector{Dict}()
+    end
+
     models = [
         Dict(
             :name => replace(model.name, "models/" => ""),
@@ -387,6 +426,7 @@ function list_models(provider::AbstractGoogleProvider)
     ]
     return models
 end
+
 list_models(api_key::String) = list_models(GoogleProvider(; api_key))
 
 """
@@ -424,11 +464,13 @@ function create_cached_content(
     elseif content isa Vector
         content
     else
-        [content]  # Assume it's already formatted correctly
+        [content]  # Assume it's already formatted properly
     end
 
     body = Dict{String,Any}(
-        "model" => "models/$model_name", "contents" => contents, "ttl" => ttl
+        "model" => "models/$model_name",
+        "contents" => contents,
+        "ttl" => ttl,
     )
 
     if !isempty(system_instruction)
@@ -452,9 +494,228 @@ function create_cached_content(
     )
 end
 
+
+"""
+    list_cached_content(provider::AbstractGoogleProvider; http_kwargs=NamedTuple()) -> JSON3.Array
+
+Lists the cache metadata for all your cached content. 
+(Does not return or expose the cached content itself.)
+"""
+function list_cached_content(
+    provider::AbstractGoogleProvider;
+    http_kwargs=NamedTuple(),
+)
+    endpoint = "cachedContents"
+    response = _request(provider, endpoint, :GET, Dict(); http_kwargs...)
+    parsed = JSON3.read(response.body)
+
+    return parsed[:cachedContents]
+end
+
+function list_cached_content(
+    api_key::String;
+    http_kwargs=NamedTuple(),
+)
+    return list_cached_content(GoogleProvider(; api_key); http_kwargs...)
+end
+
+"""
+    get_cached_content(provider::AbstractGoogleProvider, cache_name::String; http_kwargs=NamedTuple()) -> JSON3.Object
+
+Retrieves metadata for a single cached content by its name.
+Example: 
+    cache_name = "cachedContents/12345"
+"""
+function get_cached_content(
+    provider::AbstractGoogleProvider,
+    cache_name::String;
+    http_kwargs=NamedTuple(),
+)
+    # The resource name is the entire "cachedContents/..." path
+    response = _request(provider, cache_name, :GET, Dict(); http_kwargs...)
+    return JSON3.read(response.body)
+end
+
+function get_cached_content(
+    api_key::String,
+    cache_name::String;
+    http_kwargs=NamedTuple(),
+)
+    return get_cached_content(
+        GoogleProvider(; api_key), cache_name;
+        http_kwargs...
+    )
+end
+
+"""
+    update_cached_content(provider::AbstractGoogleProvider, cache_name::String; ttl="600s") -> Dict
+
+Updates the TTL of an existing cache. 
+Any attempt to change other fields is not supported.
+Example usage:
+    update_cached_content(provider, "cachedContents/xyz123"; ttl="600s")
+"""
+function update_cached_content(
+    provider::AbstractGoogleProvider,
+    cache_name::String;
+    ttl::String="600s",
+    http_kwargs=NamedTuple(),
+)
+    # This is a PATCH request to the exact resource name
+    # The body can include 'ttl' (or 'expireTime')
+    body = Dict("ttl" => ttl)
+    response = _request(provider, cache_name, :PATCH, body; http_kwargs...)
+    return JSON3.read(response.body)
+end
+
+function update_cached_content(
+    api_key::String,
+    cache_name::String;
+    ttl::String="600s",
+    http_kwargs=NamedTuple(),
+)
+    return update_cached_content(
+        GoogleProvider(; api_key), cache_name; ttl=ttl, http_kwargs...
+    )
+end
+
+"""
+    delete_cached_content(provider::AbstractGoogleProvider, cache_name::String) -> Nothing
+
+Deletes a cached content resource.
+Example usage:
+    delete_cached_content(provider, "cachedContents/xyz123")
+"""
+function delete_cached_content(
+    provider::AbstractGoogleProvider,
+    cache_name::String;
+    http_kwargs=NamedTuple(),
+)
+    response = _request(provider, cache_name, :DELETE, Dict(); http_kwargs...)
+    return response.status
+end
+
+function delete_cached_content(
+    api_key::String,
+    cache_name::String;
+    http_kwargs=NamedTuple(),
+)
+    return delete_cached_content(GoogleProvider(; api_key), cache_name; http_kwargs...)
+end
+
+
+"""
+    generate_content_with_cache(
+        provider::AbstractGoogleProvider,
+        model_name::String,
+        prompt::Union{String,Vector{Dict{Symbol,Any}}};
+        cached_content::String,
+        http_kwargs=NamedTuple(),
+        api_kwargs=NamedTuple()
+    ) -> NamedTuple
+
+Generate new content while referencing an existing cache. The `cached_content`
+argument should be the full cache resource name, e.g. "cachedContents/12345".
+
+The prompt can be either a string for single-turn generation, or a vector of 
+conversation messages for multi-turn generation.
+"""
+function generate_content_with_cache(
+    provider::AbstractGoogleProvider,
+    model_name::String,
+    prompt::Union{String,Vector{Dict{Symbol,Any}}};
+    cached_content::String,
+    api_kwargs=NamedTuple(),
+    http_kwargs=NamedTuple(),
+)
+    endpoint = "models/$model_name:generateContent"
+
+    generation_config = Dict{String,Any}()
+    for k in keys(api_kwargs)
+        generation_config[string(k)] = getproperty(api_kwargs, k)
+    end
+
+    # Handle both string prompts and conversation arrays
+    contents = if prompt isa String
+        [Dict("parts" => [Dict("text" => prompt)], "role" => "user")]
+    else
+        prompt
+    end
+
+    body = Dict(
+        "contents" => contents,
+        "cachedContent" => cached_content,
+        "generationConfig" => generation_config,
+    )
+
+    response = _request(provider, endpoint, :POST, body; http_kwargs...)
+    return _parse_response(response)
+end
+
+"""
+    generate_content_with_cache(
+        api_key::String,
+        model_name::String,
+        prompt::Union{String,Vector{Dict{Symbol,Any}}};
+        cached_content::String,
+        api_kwargs=NamedTuple(),
+        http_kwargs=NamedTuple(),
+    ) -> NamedTuple
+
+Same as above, but accepts `api_key` instead of a provider.
+"""
+function generate_content_with_cache(
+    api_key::String,
+    model_name::String,
+    prompt::Union{String,Vector{Dict{Symbol,Any}}};
+    cached_content::String,
+    api_kwargs=NamedTuple(),
+    http_kwargs=NamedTuple(),
+)
+    return generate_content_with_cache(
+        GoogleProvider(; api_key),
+        model_name,
+        prompt;
+        cached_content=cached_content,
+        api_kwargs=api_kwargs,
+        http_kwargs=http_kwargs,
+    )
+end
+
+##
+# NEW method to match calls like:
+#    generate_content_with_cache(secret_key, model, cache_name, single_prompt)
+# i.e. 4 positional arguments: (api_key, model_name, cache_name, prompt)
+##
+
+function generate_content_with_cache(
+    api_key::String,
+    model_name::String,
+    cache_name::String,
+    prompt::Union{String,Vector{Dict{Symbol,Any}}};
+    api_kwargs=NamedTuple(),
+    http_kwargs=NamedTuple(),
+)
+    return generate_content_with_cache(
+        GoogleProvider(; api_key),
+        model_name,
+        prompt;
+        cached_content=cache_name,
+        api_kwargs=api_kwargs,
+        http_kwargs=http_kwargs,
+    )
+end
+
 export GoogleProvider,
-    generate_content, count_tokens, embed_content, list_models, create_cached_content
-# list_cached_content,
-# generate_content_with_cache
+       generate_content,
+       generate_content_with_cache,
+       count_tokens,
+       embed_content,
+       list_models,
+       create_cached_content,
+       list_cached_content,
+       get_cached_content,
+       update_cached_content,
+       delete_cached_content
 
 end # module GoogleGenAI

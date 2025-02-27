@@ -33,7 +33,7 @@ Pkg> add https://github.com/tylerjthomas9/GoogleGenAI.jl/
 using GoogleGenAI
 
 secret_key = ENV["GOOGLE_API_KEY"]
-model = "gemini-2.0-flash-exp"
+model = "gemini-2.0-flash"
 prompt = "Hello"
 response = generate_content(secret_key, model, prompt)
 println(response.text)
@@ -57,7 +57,7 @@ outputs
 using GoogleGenAI
 
 secret_key = ENV["GOOGLE_API_KEY"]
-model = "gemini-2.0-flash-exp"
+model = "gemini-2.0-flash"
 prompt = "What is this image?"
 image_path = "test/example.jpg"
 response = generate_content(secret_key, model, prompt, image_path)
@@ -75,7 +75,7 @@ using GoogleGenAI
 
 provider = GoogleProvider(api_key=ENV["GOOGLE_API_KEY"])
 api_kwargs = (max_output_tokens=50,)
-model = "gemini-2.0-flash-exp"
+model = "gemini-2.0-flash"
 conversation = [
     Dict(:role => "user", :parts => [Dict(:text => "When was Julia 1.0 released?")])
 ]
@@ -98,7 +98,7 @@ outputs
 ### Count Tokens
 ```julia
 using GoogleGenAI
-model = "gemini-2.0-flash-exp"
+model = "gemini-2.0-flash"
 n_tokens = count_tokens(ENV["GOOGLE_API_KEY"], model, "The Julia programming language")
 println(n_tokens)
 ```
@@ -146,23 +146,16 @@ end
 ```
 outputs
 ```julia
-gemini-1.0-pro-latest
-gemini-1.0-pro
-gemini-pro
-gemini-1.0-pro-001
 gemini-1.0-pro-vision-latest
 gemini-pro-vision
 gemini-1.5-pro-latest
 gemini-1.5-pro-001
 gemini-1.5-pro-002
 gemini-1.5-pro
-gemini-1.5-pro-exp-0801
-gemini-1.5-pro-exp-0827
 gemini-1.5-flash-latest
 gemini-1.5-flash-001
 gemini-1.5-flash-001-tuning
 gemini-1.5-flash
-gemini-1.5-flash-exp-0827
 gemini-1.5-flash-002
 gemini-1.5-flash-8b
 gemini-1.5-flash-8b-001
@@ -170,9 +163,14 @@ gemini-1.5-flash-8b-latest
 gemini-1.5-flash-8b-exp-0827
 gemini-1.5-flash-8b-exp-0924
 gemini-2.0-flash-exp
+gemini-2.0-flash
+gemini-2.0-flash-001
+gemini-2.0-flash-lite-001
+gemini-2.0-flash-lite
+gemini-2.0-pro-exp
+gemini-2.0-pro-exp-02-05
 gemini-exp-1206
-gemini-exp-1121
-gemini-exp-1114
+gemini-2.0-flash-thinking-exp-01-21
 gemini-2.0-flash-thinking-exp
 gemini-2.0-flash-thinking-exp-1219
 learnlm-1.5-pro-experimental
@@ -200,13 +198,34 @@ response = generate_content(secret_key, model, prompt; api_kwargs)
 
 ### Content Caching
 
+List models that support content caching:
+
+```julia
+using GoogleGenAI
+models = list_models(ENV["GOOGLE_API_KEY"])
+for m in models
+    if "createCachedContent" in m[:supported_generation_methods]
+        println(m[:name])
+    end
+end
+```
+```julia
+gemini-1.5-pro-001
+gemini-1.5-pro-002
+gemini-1.5-flash-001
+gemini-1.5-flash-002
+gemini-1.5-flash-8b
+gemini-1.5-flash-8b-001
+gemini-1.5-flash-8b-latest
+```
+
 Cache content to reuse it across multiple requests:
 
 ```julia
 using GoogleGenAI
 
 provider = GoogleProvider(api_key=ENV["GOOGLE_API_KEY"])
-model = "gemini-1.5-flash-002"
+model = "gemini-2.0-flash-001"
 
 # Create cached content (at least 32,786 tokens are required for caching)
 text = read("test/example.txt", String) ^ 7
