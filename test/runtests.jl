@@ -109,6 +109,31 @@ if haskey(ENV, "GOOGLE_API_KEY")
         delete_status = delete_cached_content(secret_key, cache_name)
         @test delete_status == 200  # or whatever status code you expect (200 or 204)
     end
+
+    @testset "File Management" begin
+        # Ensure the test file exists; if not, create a dummy file.
+        test_file = "example.jpg"
+
+        # 1) Upload the file.
+        upload_result = upload_file(
+            secret_key, test_file; display_name="Test JPEG", mime_type="image/jpeg"
+        )
+        @test haskey(upload_result, "name")
+        file_name = upload_result["name"]
+
+        # 2) Retrieve file metadata.
+        get_result = get_file(secret_key, file_name)
+        @test get_result["name"] == file_name
+
+        # 3) List files and verify the uploaded file appears in the list.
+        list_result = list_files(secret_key; page_size=10)
+        @test any(f -> f["name"] == file_name, list_result)
+
+        # 4) Delete the file.
+        delete_status = delete_file(secret_key, file_name)
+        @test delete_status == 200 || delete_status == 204
+    end
+
 else
     @info "Skipping GoogleGenAI.jl tests because GOOGLE_API_KEY is not set"
 end

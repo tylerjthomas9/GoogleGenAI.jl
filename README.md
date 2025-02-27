@@ -237,3 +237,29 @@ cache_result = create_cached_content(
     # system_instruction="You are Julia's Number 1 fan",
 )
 ```
+
+### Files
+
+Files are only supported in Gemini Developer API.
+
+
+```julia
+using GoogleGenAI
+
+provider = GoogleProvider(api_key=ENV["GOOGLE_API_KEY"])
+file_path = "test/example.jpg"
+
+# upload file
+upload_result = upload_file(
+    provider, file_path; display_name="Test JPEG", mime_type="image/jpeg"
+)
+
+# Get file metadata
+get_result = get_file(provider, upload_result[:name])
+
+# List files
+list_result = list_files(provider)
+
+# Delete file
+delete_file(provider, upload_result[:name])
+```
