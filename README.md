@@ -225,7 +225,7 @@ Cache content to reuse it across multiple requests:
 using GoogleGenAI
 
 provider = GoogleProvider(api_key=ENV["GOOGLE_API_KEY"])
-model = "gemini-2.0-flash-001"
+model = "gemini-1.5-flash-002"
 
 # Create cached content (at least 32,786 tokens are required for caching)
 text = read("test/example.txt", String) ^ 7
@@ -233,9 +233,19 @@ cache_result = create_cached_content(
     provider,
     model,
     text,
-    ttl="60s", # Cache for 60 seconds
+    ttl="360s", # Cache for 60 seconds
     # system_instruction="You are Julia's Number 1 fan",
 )
+
+# Now generate content that references the cached content.
+prompt = "Please summarize this document"
+response = generate_content_with_cache(
+    provider,
+    model,
+    prompt;
+    cached_content=cache_name
+)
+println(response.text)
 ```
 
 ### Files
