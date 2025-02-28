@@ -34,6 +34,71 @@ function status_error(resp, log=nothing)
     return error("Request failed with status $(resp.status) $(resp.message) $logs")
 end
 
+"""
+    GenerateContentConfig
+
+Optional model configuration parameters.
+
+# Fields
+- `http_options=(;)`: Used to override HTTP request options.
+    - All keyword arguments supported by the `HTTP.request` function. Documentation can be found here: https://juliaweb.github.io/HTTP.jl/stable/reference/#HTTP.request.
+- `system_instruction::Union{Nothing,String,Vector{Dict{Symbol,Any}}}`: Instructions for the model.
+- `temperature::Union{Nothing,Float64}`: Controls the degree of randomness in token selection.
+- `top_p::Union{Nothing,Float64}`: Selects tokens from most to least probable until the sum of their probabilities equals this value.
+- `top_k::Union{Nothing,Float64}`: Samples the `top_k` tokens with the highest probabilities at each step.
+- `candidate_count::Union{Nothing,Int}`: Number of response variations to return.
+- `max_output_tokens::Union{Nothing,Int}`: Maximum number of tokens that can be generated.
+- `stop_sequences::Union{Nothing,Vector{String}}`: List of strings that tell the model to stop generating text.
+- `response_logprobs::Union{Nothing,Bool}`: Whether to return the log probabilities of chosen tokens.
+- `logprobs::Union{Nothing,Int}`: Number of top candidate tokens to return log probabilities for.
+- `presence_penalty::Union{Nothing,Float64}`: Penalizes tokens that already appear, increasing diversity.
+- `frequency_penalty::Union{Nothing,Float64}`: Penalizes tokens that appear repeatedly, increasing diversity.
+- `seed::Union{Nothing,Int}`: Fixed seed for reproducibility; otherwise, a random number is used.
+- `response_mime_type::Union{Nothing,String}`: Output response media type.
+- `response_schema::Union{Nothing,Dict{Symbol,Any}}`: Schema that the generated candidate text must adhere to.
+- `routing_config::Union{Nothing,Dict{Symbol,Any}}`: Configuration for model router requests.
+- `safety_settings::Union{Nothing,Vector{Dict{Symbol,Any}}}`: Safety settings to block unsafe content.
+- `tools::Union{Nothing,Vector{Dict{Symbol,Any}}}`: Enables interaction with external systems.
+- `tool_config::Union{Nothing,Dict{Symbol,Any}}`: Associates model output to a specific function call.
+- `labels::Union{Nothing,Dict{String,String}}`: User-defined metadata labels.
+- `cached_content::Union{Nothing,String}`: Resource name of a context cache.
+- `response_modalities::Union{Nothing,Vector{String}}`: Requested modalities of the response.
+- `media_resolution::Union{Nothing,String}`: Specified media resolution.
+- `speech_config::Union{Nothing,Dict{Symbol,Any}}`: Speech generation configuration.
+- `audio_timestamp::Union{Nothing,Bool}`: Whether to include audio timestamp in the request.
+- `automatic_function_calling::Union{Nothing,Dict{Symbol,Any}}`: Configuration for automatic function calling.
+- `thinking_config::Union{Nothing,Dict{Symbol,Any}}`: Thinking features configuration.
+"""
+Base.@kwdef struct GenerateContentConfig
+    http_options = (;)
+    system_instruction::Union{Nothing,String} = nothing
+    temperature::Union{Nothing,Float64} = nothing
+    top_p::Union{Nothing,Float64} = nothing
+    top_k::Union{Nothing,Float64} = nothing
+    candidate_count::Union{Nothing,Int} = nothing
+    max_output_tokens::Union{Nothing,Int} = nothing
+    stop_sequences::Union{Nothing,Vector{String}} = nothing
+    response_logprobs::Union{Nothing,Bool} = nothing
+    logprobs::Union{Nothing,Int} = nothing
+    presence_penalty::Union{Nothing,Float64} = nothing
+    frequency_penalty::Union{Nothing,Float64} = nothing
+    seed::Union{Nothing,Int} = nothing
+    response_mime_type::Union{Nothing,String} = nothing
+    response_schema::Union{Nothing,Dict{Symbol,Any}} = nothing
+    routing_config::Union{Nothing,Dict{Symbol,Any}} = nothing
+    safety_settings::Union{Nothing,Vector{Dict{Symbol,Any}}} = nothing
+    tools::Union{Nothing,Vector{Dict{Symbol,Any}}} = nothing
+    tool_config::Union{Nothing,Dict{Symbol,Any}} = nothing
+    labels::Union{Nothing,Dict{String,String}} = nothing
+    cached_content::Union{Nothing,String} = nothing
+    response_modalities::Union{Nothing,Vector{String}} = nothing
+    media_resolution::Union{Nothing,String} = nothing
+    speech_config::Union{Nothing,Dict{Symbol,Any}} = nothing
+    audio_timestamp::Union{Nothing,Bool} = nothing
+    automatic_function_calling::Union{Nothing,Dict{Symbol,Any}} = nothing
+    thinking_config::Union{Nothing,Dict{Symbol,Any}} = nothing
+end
+
 function _request(
     provider::AbstractGoogleProvider,
     endpoint::String,
@@ -104,11 +169,11 @@ function _parse_response(response::HTTP.Messages.Response)
 end
 
 """
-    generate_content(provider::AbstractGoogleProvider, model_name::String, prompt::String, image_path::String; api_kwargs=NamedTuple(), http_kwargs=NamedTuple()) -> NamedTuple
-    generate_content(api_key::String, model_name::String, prompt::String, image_path::String; api_kwargs=NamedTuple(), http_kwargs=NamedTuple()) -> NamedTuple
+    generate_content(provider::AbstractGoogleProvider, model_name::String, prompt::String; image_path::String, api_kwargs=NamedTuple(), config=GenerateContentConfig()) -> NamedTuple
+    generate_content(api_key::String, model_name::String, prompt::String; image_path::String, api_kwargs=NamedTuple(), config=GenerateContentConfig()) -> NamedTuple
     
-    generate_content(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; api_kwargs=NamedTuple(), http_kwargs=NamedTuple()) -> NamedTuple
-    generate_content(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; api_kwargs=NamedTuple(), http_kwargs=NamedTuple()) -> NamedTuple
+    generate_content(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; image_path::String, api_kwargs=NamedTuple(), config=GenerateContentConfig()) -> NamedTuple
+    generate_content(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; image_path::String, api_kwargs=NamedTuple(), config=GenerateContentConfig()) -> NamedTuple
 
 Generate content based on a combination of text prompt and an image (optional).
 
@@ -126,9 +191,6 @@ Generate content based on a combination of text prompt and an image (optional).
 - `stop_sequences::Vector{String}` (optional): A list of sequences where the generation should stop. Useful for defining natural endpoints in generated content.
 - `safety_settings::Vector{Dict}` (optional): Settings to control the safety aspects of the generated content, such as filtering out unsafe or inappropriate content.
 
-# HTTP Kwargs
-- All keyword arguments supported by the `HTTP.request` function. Documentation can be found here: https://juliaweb.github.io/HTTP.jl/stable/reference/#HTTP.request.
-
 # Returns
 - `NamedTuple`: A named tuple containing the following keys:
     - `candidates`: A vector of dictionaries, each representing a generation candidate.
@@ -140,101 +202,10 @@ Generate content based on a combination of text prompt and an image (optional).
 function generate_content(
     provider::AbstractGoogleProvider,
     model_name::String,
-    prompt::String;
-    api_kwargs=NamedTuple(),
-    http_kwargs=NamedTuple(),
-)
-    endpoint = "models/$model_name:generateContent"
-
-    safety_settings = get(api_kwargs, :safety_settings, nothing)
-    generation_config = Dict{String,Any}()
-    for key in keys(api_kwargs)
-        if key != :safety_settings
-            generation_config[string(key)] = getproperty(api_kwargs, key)
-        end
-    end
-
-    body = Dict(
-        "contents" => [Dict("parts" => [Dict("text" => prompt)])],
-        "generationConfig" => generation_config,
-        "safetySettings" => safety_settings,
-    )
-
-    response = _request(provider, endpoint, :POST, body; http_kwargs...)
-    return _parse_response(response)
-end
-
-function generate_content(
-    api_key::String,
-    model_name::String,
-    prompt::String;
-    api_kwargs=NamedTuple(),
-    http_kwargs=NamedTuple(),
-)
-    return generate_content(
-        GoogleProvider(; api_key), model_name, prompt; api_kwargs, http_kwargs
-    )
-end
-
-function generate_content(
-    provider::AbstractGoogleProvider,
-    model_name::String,
-    prompt::String,
-    image_path::String;
-    api_kwargs=NamedTuple(),
-    http_kwargs=NamedTuple(),
-)
-    image_data = open(base64encode, image_path)
-    safety_settings = get(api_kwargs, :safety_settings, nothing)
-
-    generation_config = Dict{String,Any}()
-    for key in keys(api_kwargs)
-        if key != :safety_settings
-            generation_config[string(key)] = getproperty(api_kwargs, key)
-        end
-    end
-
-    body = Dict(
-        "contents" => [
-            Dict(
-                "parts" => [
-                    Dict("text" => prompt),
-                    Dict(
-                        "inline_data" =>
-                            Dict("mime_type" => "image/jpeg", "data" => image_data),
-                    ),
-                ],
-            ),
-        ],
-        "generationConfig" => generation_config,
-        "safetySettings" => safety_settings,
-    )
-
-    response = _request(
-        provider, "models/$model_name:generateContent", :POST, body; http_kwargs...
-    )
-    return _parse_response(response)
-end
-
-function generate_content(
-    api_key::String,
-    model_name::String,
-    prompt::String,
-    image_path::String;
-    api_kwargs=NamedTuple(),
-    http_kwargs=NamedTuple(),
-)
-    return generate_content(
-        GoogleProvider(; api_key), model_name, prompt, image_path; api_kwargs, http_kwargs
-    )
-end
-
-function generate_content(
-    provider::AbstractGoogleProvider,
-    model_name::String,
     conversation::Vector{Dict{Symbol,Any}};
+    image_path::String="",
     api_kwargs=NamedTuple(),
-    http_kwargs=NamedTuple(),
+    config::GenerateContentConfig=GenerateContentConfig(),
 )
     endpoint = "models/$model_name:generateContent"
 
@@ -259,7 +230,7 @@ function generate_content(
         "safetySettings" => safety_settings,
     )
 
-    response = _request(provider, endpoint, :POST, body; http_kwargs...)
+    response = _request(provider, endpoint, :POST, body; config.http_options...)
     return _parse_response(response)
 end
 
@@ -267,11 +238,48 @@ function generate_content(
     api_key::String,
     model_name::String,
     conversation::Vector{Dict{Symbol,Any}};
+    image_path::String="",
     api_kwargs=NamedTuple(),
-    http_kwargs=NamedTuple(),
+    config=GenerateContentConfig(),
 )
     return generate_content(
-        GoogleProvider(; api_key), model_name, conversation; api_kwargs, http_kwargs
+        GoogleProvider(; api_key), model_name, conversation; api_kwargs, config
+    )
+end
+
+function generate_content(
+    provider::AbstractGoogleProvider,
+    model_name::String,
+    prompt::String;
+    image_path::String="",
+    api_kwargs=NamedTuple(),
+    config=GenerateContentConfig(),
+)
+    return generate_content(
+        provider,
+        model_name,
+        [Dict(:role => "user", :parts => [Dict("text" => prompt)])];
+        image_path,
+        api_kwargs,
+        config,
+    )
+end
+
+function generate_content(
+    api_key::String,
+    model_name::String,
+    prompt::String;
+    image_path::String="",
+    api_kwargs=NamedTuple(),
+    config=GenerateContentConfig(),
+)
+    return generate_content(
+        GoogleProvider(; api_key),
+        model_name,
+        [Dict(:role => "user", :parts => [Dict("text" => prompt)])];
+        image_path,
+        api_kwargs,
+        config,
     )
 end
 
@@ -857,6 +865,7 @@ function delete_file(api_key::String, file_name::String; http_kwargs=NamedTuple(
 end
 
 export GoogleProvider,
+    GenerateContentConfig,
     generate_content,
     generate_content_with_cache,
     count_tokens,

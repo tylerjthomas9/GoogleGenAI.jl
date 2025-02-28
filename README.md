@@ -60,7 +60,7 @@ secret_key = ENV["GOOGLE_API_KEY"]
 model = "gemini-2.0-flash"
 prompt = "What is this image?"
 image_path = "test/example.jpg"
-response = generate_content(secret_key, model, prompt, image_path)
+response = generate_content(secret_key, model, prompt; image_path)
 println(response.text)
 ```
 outputs
@@ -87,12 +87,6 @@ println("Model: ", response.text)
 push!(conversation, Dict(:role => "user", :parts => [Dict(:text => "Who created the language?")]))
 response = generate_content(provider, model, conversation; api_kwargs)
 println("Model: ", response.text)
-```
-outputs
-```julia
-"Model: Julia 1.0 was released on **August 8, 2018**."
-
-"Model: Julia was created by a team of developers at MIT, led by **Jeff Bezanson, Stefan Karpinski, Viral B. Shah, and Alan Edelman**."
 ```
 
 ### Count Tokens

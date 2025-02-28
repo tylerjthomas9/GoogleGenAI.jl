@@ -10,25 +10,24 @@ if haskey(ENV, "GOOGLE_API_KEY")
         model = "gemini-2.0-flash-lite"
         embedding_model = "text-embedding-004"
         api_kwargs = (max_output_tokens=50,)
-        http_kwargs = (retries=2,)
+        http_options = (retries=2,)
+        config = GenerateContentConfig(; http_options=http_options)
         # Generate text from text
-        response = generate_content(secret_key, model, "Hello"; api_kwargs, http_kwargs)
+        response = generate_content(secret_key, model, "Hello"; api_kwargs, config)
 
         # Generate text from text+image
         response = generate_content(
             secret_key,
             model,
-            "What is this picture?",
-            "example.jpg";
+            "What is this picture?";
+            image_path="example.jpg",
             api_kwargs,
-            http_kwargs,
+            config,
         )
 
         # Multi-turn conversation
         conversation = [Dict(:role => "user", :parts => [Dict(:text => "Hello")])]
-        response = generate_content(
-            secret_key, model, conversation; api_kwargs, http_kwargs
-        )
+        response = generate_content(secret_key, model, conversation; api_kwargs, config)
 
         n_tokens = count_tokens(secret_key, model, "Hello")
         @test n_tokens == 1
