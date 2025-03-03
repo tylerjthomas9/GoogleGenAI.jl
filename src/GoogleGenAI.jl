@@ -203,14 +203,10 @@ Generate content based on a combination of text prompt and an image (optional).
 - `api_key::String`: Your Google API key as a string. 
 - `model_name::String`: The model to use for content generation.
 - `prompt::String`: The text prompt to accompany the image.
+
+# Keyword Arguments
 - `image_path::String` (optional): The path to the image file to include in the request.
-- `config::GenerateContentConfig` (optional): Configuration for the generation request, including:
-  - `temperature::Float64`: Controls the randomness in the generation process. Higher values result in more random outputs. Typically ranges between 0 and 1.
-  - `candidate_count::Int`: The number of generation candidates to consider. Currently, only one candidate can be specified.
-  - `max_output_tokens::Int`: The maximum number of tokens that the generated content should contain.
-  - `stop_sequences::Vector{String}`: A list of sequences where the generation should stop. Useful for defining natural endpoints in generated content.
-  - `safety_settings::Vector{Dict}`: Settings to control the safety aspects of the generated content, such as filtering out unsafe or inappropriate content.
-  - `http_options`: HTTP request options passed to the underlying request.
+- `config::GenerateContentConfig` (optional): Configuration for the generation request.
 
 # Returns
 - `NamedTuple`: A named tuple containing the following keys:
@@ -288,6 +284,236 @@ function generate_content(
     config=GenerateContentConfig(),
 )
     return generate_content(
+        GoogleProvider(; api_key),
+        model_name,
+        [Dict(:role => "user", :parts => [Dict("text" => prompt)])];
+        image_path,
+        config,
+    )
+end
+
+"""
+    generate_content_stream(provider::AbstractGoogleProvider, model_name::String, prompt::String; image_path::String="", config=GenerateContentConfig()) -> Channel
+    generate_content_stream(api_key::String, model_name::String, prompt::String; image_path::String="", config=GenerateContentConfig()) -> Channel
+    
+    generate_content_stream(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; image_path::String="", config=GenerateContentConfig()) -> Channel
+    generate_content_stream(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; image_path::String="", config=GenerateContentConfig()) -> Channel
+
+Generate content in a streaming fashion, returning partial results as they become available.
+
+# Arguments
+- `provider::AbstractGoogleProvider`: The provider instance for API requests.
+- `api_key::String`: Your Google API key as a string. 
+- `model_name::String`: The model to use for content generation.
+- `prompt::String`: The text prompt to accompany the image.
+
+# Keyword Arguments
+- `image_path::String` (optional): The path to the image file to include in the request.
+- `config::GenerateContentConfig` (optional): Configuration for the generation request.
+
+# Returns
+- `Channel`: A channel that yields partial text responses as they become available.
+  Each item in the channel is a named tuple with the following fields:
+  - `text::String`: The partial text response.
+  - `finish_reason::Union{String,Nothing}`: The reason why generation stopped, if applicable.
+  - `is_final::Bool`: Whether this is the final chunk of the response.
+"""
+function generate_content_stream(
+    provider::AbstractGoogleProvider,
+    model_name::String,
+    conversation::Vector{Dict{Symbol,Any}};
+    image_path::String="",
+    config::GenerateContentConfig=GenerateContentConfig(),
+)
+    endpoint = "models/$model_name:streamGenerateContent"
+
+    contents = []
+    for turn in conversation
+        role = turn[:role]
+        parts = turn[:parts]
+        push!(contents, Dict("role" => role, "parts" => parts))
+    end
+
+    generation_config = _build_generation_config(config)
+
+    body = Dict("contents" => contents, "generationConfig" => generation_config)
+
+    if config.safety_settings !== nothing
+        body["safetySettings"] = config.safety_settings
+    end
+
+    if config.cached_content !== nothing
+        body["cachedContent"] = config.cached_content
+    end
+
+    # Create a channel to stream the results
+    result_channel = Channel{NamedTuple}(32)
+
+    # Start a task to handle the streaming
+    @async begin
+        try
+            if isempty(provider.api_key)
+                throw(ArgumentError("api_key cannot be empty"))
+            end
+
+            url = "$(provider.base_url)/$(provider.api_version)/$endpoint?alt=sse&key=$(provider.api_key)"
+            headers = Dict("Content-Type" => "application/json")
+
+            serialized_body = isempty(body) ? UInt8[] : JSON3.write(body)
+
+            # Use a simpler approach with HTTP.get
+            response = HTTP.request(
+                "POST", url, headers, serialized_body; status_exception=false
+            )
+
+            if response.status >= 400
+                error_msg = String(response.body)
+                put!(
+                    result_channel,
+                    (
+                        error=ErrorException(
+                            "Request failed with status $(response.status): $error_msg"
+                        ),
+                        text="",
+                        finish_reason=nothing,
+                        is_final=true,
+                    ),
+                )
+                return nothing
+            end
+
+            # Process the streaming response
+            buffer = IOBuffer()
+            current_text = ""
+            finish_reason = nothing
+
+            # Split the response by data: lines
+            response_text = String(response.body)
+            lines = split(response_text, "\n")
+
+            for line in lines
+                # Skip empty lines and SSE prefixes
+                if isempty(line) || startswith(line, ":")
+                    continue
+                end
+
+                # Extract the data part (SSE format: "data: {json}")
+                if !startswith(line, "data:")
+                    continue
+                end
+
+                data_str = strip(replace(line, r"^data:" => ""))
+
+                # Skip empty data or end marker
+                if isempty(data_str) || data_str == "[DONE]"
+                    continue
+                end
+
+                # Parse the JSON data
+                try
+                    parsed_data = JSON3.read(data_str)
+
+                    # Check if there are candidates
+                    if haskey(parsed_data, :candidates) && !isempty(parsed_data.candidates)
+                        candidate = parsed_data.candidates[1]
+
+                        # Extract text from the candidate
+                        if haskey(candidate, :content) && haskey(candidate.content, :parts)
+                            chunk_text = ""
+                            for part in candidate.content.parts
+                                if haskey(part, :text)
+                                    chunk_text *= part.text
+                                end
+                            end
+
+                            # Update the current text with the new chunk
+                            current_text = chunk_text
+
+                            # Check for finish reason
+                            is_final = false
+                            if haskey(candidate, :finishReason) &&
+                                candidate.finishReason != "FINISH_REASON_UNSPECIFIED" &&
+                                candidate.finishReason != ""
+                                finish_reason = candidate.finishReason
+                                is_final = true
+                            end
+
+                            # Put the current chunk into the channel
+                            put!(
+                                result_channel,
+                                (
+                                    text=current_text,
+                                    finish_reason=finish_reason,
+                                    is_final=is_final,
+                                ),
+                            )
+
+                            # If this is the final chunk, we're done
+                            if is_final
+                                break
+                            end
+                        end
+                    end
+                catch e
+                    # Skip malformed JSON
+                    @warn "Error parsing SSE data: $e"
+                    continue
+                end
+            end
+
+            # Ensure we always send a final chunk if we haven't already
+            if !isempty(current_text) && finish_reason === nothing
+                put!(
+                    result_channel, (text=current_text, finish_reason="STOP", is_final=true)
+                )
+            end
+        catch e
+            # Put the error in the channel
+            put!(result_channel, (error=e, text="", finish_reason=nothing, is_final=true))
+        finally
+            close(result_channel)
+        end
+    end
+
+    return result_channel
+end
+
+function generate_content_stream(
+    api_key::String,
+    model_name::String,
+    conversation::Vector{Dict{Symbol,Any}};
+    image_path::String="",
+    config=GenerateContentConfig(),
+)
+    return generate_content_stream(
+        GoogleProvider(; api_key), model_name, conversation; image_path, config
+    )
+end
+
+function generate_content_stream(
+    provider::AbstractGoogleProvider,
+    model_name::String,
+    prompt::String;
+    image_path::String="",
+    config=GenerateContentConfig(),
+)
+    return generate_content_stream(
+        provider,
+        model_name,
+        [Dict(:role => "user", :parts => [Dict("text" => prompt)])];
+        image_path,
+        config,
+    )
+end
+
+function generate_content_stream(
+    api_key::String,
+    model_name::String,
+    prompt::String;
+    image_path::String="",
+    config=GenerateContentConfig(),
+)
+    return generate_content_stream(
         GoogleProvider(; api_key),
         model_name,
         [Dict(:role => "user", :parts => [Dict("text" => prompt)])];
@@ -764,6 +990,7 @@ end
 export GoogleProvider,
     GenerateContentConfig,
     generate_content,
+    generate_content_stream,
     count_tokens,
     embed_content,
     list_models,

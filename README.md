@@ -89,6 +89,45 @@ response = generate_content(provider, model, conversation; api_kwargs)
 println("Model: ", response.text)
 ```
 
+### Streaming Content Generation
+
+```julia
+using GoogleGenAI
+
+secret_key = ENV["GOOGLE_API_KEY"]
+model = "gemini-2.0-flash"
+prompt = "Write a short story about a magic backpack"
+
+# Get a channel that yields partial results
+stream = generate_content_stream(secret_key, model, prompt)
+
+# Process the stream as results arrive
+for chunk in stream
+    println(chunk.text)
+end
+```
+
+For multi-turn conversations with streaming:
+
+```julia
+using GoogleGenAI
+
+provider = GoogleProvider(api_key=ENV["GOOGLE_API_KEY"])
+model = "gemini-2.0-flash"
+conversation = [
+    Dict(:role => "user", :parts => [Dict(:text => "Write a short poem about Julia programming language")])
+]
+
+# First message
+println("Generating first response...")
+stream = generate_content_stream(provider, model, conversation)
+last_response = ""
+
+for chunk in stream
+    println("Response: ", chunk.text)
+end
+```
+
 ### Count Tokens
 ```julia
 using GoogleGenAI

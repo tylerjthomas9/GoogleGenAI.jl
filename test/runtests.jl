@@ -38,6 +38,47 @@ if haskey(ENV, "GOOGLE_API_KEY")
         @test haskey(models[1], :name)
     end
 
+    @testset "Streaming Content Generation" begin
+        model = "gemini-2.0-flash-lite"
+        config = GenerateContentConfig(; http_options=http_options, max_output_tokens=50)
+
+        # Test single prompt streaming
+        prompt = "Hello, how are you?"
+        stream = generate_content_stream(secret_key, model, prompt)
+
+        # Collect all chunks
+        chunks = []
+        for chunk in stream
+            if haskey(chunk, :error)
+                @warn "Error in streaming: $(chunk.error)"
+            end
+            push!(chunks, chunk)
+        end
+
+        # Verify we got at least one chunk and that it has text
+        @test length(chunks) > 0
+        @test any(chunk -> !isempty(get(chunk, :text, "")), chunks)
+
+        # Test conversation streaming
+        conversation = [
+            Dict(:role => "user", :parts => [Dict(:text => "Hello, how are you?")])
+        ]
+        stream = generate_content_stream(secret_key, model, conversation)
+
+        # Collect all chunks
+        chunks = []
+        for chunk in stream
+            if haskey(chunk, :error)
+                @warn "Error in conversation streaming: $(chunk.error)"
+            end
+            push!(chunks, chunk)
+        end
+
+        # Verify we got at least one chunk and that it has text
+        @test length(chunks) > 0
+        @test any(chunk -> !isempty(get(chunk, :text, "")), chunks)
+    end
+
     @testset "Content Caching" begin
         model = "gemini-1.5-flash-8b"
         text = read("example.txt", String) * "<><"^13_860
