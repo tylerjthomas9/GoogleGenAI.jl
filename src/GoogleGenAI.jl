@@ -173,19 +173,19 @@ Extract generation config parameters from the config
 """
 function _build_generation_config(config::GenerateContentConfig)
     generation_config = Dict{String,Any}()
-
     for (field, key) in [
         (:temperature, "temperature"),
         (:candidate_count, "candidateCount"),
         (:max_output_tokens, "maxOutputTokens"),
         (:stop_sequences, "stopSequences"),
+        (:response_mime_type, "responseMimeType"),
+        (:response_schema, "responseSchema"),
     ]
         value = getfield(config, field)
         if value !== nothing
             generation_config[key] = value
         end
     end
-
     return generation_config
 end
 

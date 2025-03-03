@@ -1,6 +1,7 @@
 using Aqua
 using Dates
 using GoogleGenAI
+using JSON3
 using Test
 
 if haskey(ENV, "GOOGLE_API_KEY")
@@ -165,6 +166,36 @@ if haskey(ENV, "GOOGLE_API_KEY")
         # 4) Delete the file.
         delete_status = delete_file(secret_key, file_name)
         @test delete_status == 200 || delete_status == 204
+    end
+
+    @testset "Structured Generation" begin
+        model = "gemini-2.0-flash-lite"
+        config = GenerateContentConfig(; http_options=http_options)
+
+        schema = Dict(
+            :type => "ARRAY",
+            :items => Dict(
+                :type => "OBJECT",
+                :properties => Dict(
+                    :recipe_name => Dict(:type => "STRING"),
+                    :ingredients =>
+                        Dict(:type => "ARRAY", :items => Dict(:type => "STRING")),
+                ),
+                :propertyOrdering => ["recipe_name", "ingredients"],
+            ),
+        )
+
+        config = GenerateContentConfig(;
+            response_mime_type="application/json", response_schema=schema
+        )
+
+        prompt = "List a few popular cookie recipes with exact amounts of each ingredient."
+        response = generate_content(secret_key, model, prompt; config=config)
+        json_string = response.text
+        recipes = JSON3.read(json_string)
+        @test length(recipes) > 0
+        @test haskey(recipes[1], "recipe_name")
+        @test haskey(recipes[1], "ingredients")
     end
 
 else

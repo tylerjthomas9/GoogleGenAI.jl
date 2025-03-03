@@ -307,3 +307,85 @@ list_result = list_files(provider)
 # Delete file
 delete_file(provider, upload_result[:name])
 ```
+
+## Structured Generation
+
+
+Json 
+```julia
+using GoogleGenAI
+using JSON3
+
+# API key and model
+api_key = ENV["GOOGLE_API_KEY"]
+model   = "gemini-2.0-flash"
+
+# Define a JSON schema for an Array of Objects
+# Each object has "recipe_name" (a String) and "ingredients" (an Array of Strings).
+schema = Dict(
+    :type => "ARRAY",
+    :items => Dict(
+        :type => "OBJECT",
+        :properties => Dict(
+            :recipe_name => Dict(:type => "STRING"),
+            :ingredients => Dict(
+                :type  => "ARRAY",
+                :items => Dict(:type => "STRING")
+            )
+        ),
+        :propertyOrdering => ["recipe_name", "ingredients"]
+    )
+)
+
+config = GenerateContentConfig(
+    response_mime_type = "application/json",
+    response_schema    = schema,
+)
+
+prompt = "List a few popular cookie recipes with exact amounts of each ingredient."
+response = generate_content(api_key, model, prompt; config=config)
+json_string = response.text
+recipes = JSON3.read(json_string)
+println(recipes)
+```
+outputs
+```julia
+JSON3.Object[{
+   "recipe_name": "Chocolate Chip Cookies",
+   "ingredients": [
+                    "1 cup (2 sticks) unsalted butter, softened",
+                    "3/4 cup granulated sugar",
+                    "3/4 cup packed brown sugar",
+                    "1 teaspoon vanilla extract",
+                    "2 large eggs",
+                    "2 1/4 cups all-purpose flour",
+                    "1 teaspoon baking soda",
+                    "1 teaspoon salt",
+                    "2 cups chocolate chips"
+                  ]
+}, {
+   "recipe_name": "Peanut Butter Cookies",
+   "ingredients": [
+                    "1 cup (2 sticks) unsalted butter, softened",
+                    "1 cup creamy peanut butter",
+                    "1 cup granulated sugar",
+                    "1 cup packed brown sugar",
+                    "2 large eggs",
+                    "1 teaspoon vanilla extract",
+                    "2 1/2 cups all-purpose flour",
+                    "1 teaspoon baking soda",
+                    "1/2 teaspoon salt"
+                  ]
+}, {
+   "recipe_name": "Sugar Cookies",
+   "ingredients": [
+                    "1 1/2 cups (3 sticks) unsalted butter, softened",
+                    "2 cups granulated sugar",
+                    "4 large eggs",
+                    "1 teaspoon vanilla extract",
+                    "5 cups all-purpose flour",
+                    "2 teaspoons baking powder",
+                    "1 teaspoon salt"
+                  ]
+}]
+```
