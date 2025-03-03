@@ -199,7 +199,7 @@ if haskey(ENV, "GOOGLE_API_KEY")
     end
 
     @testset "Code Generation" begin
-        model = "gemini-2.0-flash-lite"
+        model = "gemini-2.0-flash"
         tools = [Dict(:code_execution => Dict())]
         config = GenerateContentConfig(; http_options, tools)
 
@@ -207,7 +207,7 @@ if haskey(ENV, "GOOGLE_API_KEY")
         response = generate_content(secret_key, model, prompt; config=config)
         @test response.response_status == 200
         @test response.text isa String
-        @info response.text
+        @test occursin("```python", response.text)
     end
 
 else

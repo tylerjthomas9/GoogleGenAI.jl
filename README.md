@@ -396,7 +396,7 @@ JSON3.Object[{
 using GoogleGenAI
 
 secret_key = ENV["GOOGLE_API_KEY"]
-model = "gemini-2.0-flash-lite"
+model = "gemini-2.0-flash"
 
 tools = [Dict(:code_execution => Dict())]
 config = GenerateContentConfig(; tools)
