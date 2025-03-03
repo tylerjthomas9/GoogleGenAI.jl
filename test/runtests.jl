@@ -198,6 +198,18 @@ if haskey(ENV, "GOOGLE_API_KEY")
         @test haskey(recipes[1], "ingredients")
     end
 
+    @testset "Code Generation" begin
+        model = "gemini-2.0-flash-lite"
+        tools = [Dict(:code_execution => Dict())]
+        config = GenerateContentConfig(; http_options, tools)
+
+        prompt = "Write a function to calculate the factorial of a number."
+        response = generate_content(secret_key, model, prompt; config=config)
+        @test response.response_status == 200
+        @test response.text isa String
+        @info response.text
+    end
+
 else
     @info "Skipping GoogleGenAI.jl tests because GOOGLE_API_KEY is not set"
 end

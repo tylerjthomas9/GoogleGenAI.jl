@@ -389,3 +389,47 @@ JSON3.Object[{
                   ]
 }]
 ```
+
+# Code Generation
+
+```julia
+using GoogleGenAI
+
+secret_key = ENV["GOOGLE_API_KEY"]
+model = "gemini-2.0-flash-lite"
+
+tools = [Dict(:code_execution => Dict())]
+config = GenerateContentConfig(; tools)
+
+prompt = "Write a function to calculate the factorial of a number."
+response = generate_content(secret_key, model, prompt; config=config)
+println(response.text)
+```
+
+```bash
+Okay, I will write a function to calculate the factorial of a number.
+
+Here's the Python code:
+
+```python
+def factorial(n):
+    """
+    This function calculates the factorial of a non-negative integer.
+
+    Args:
+    n: A non-negative integer.
+
+    Returns:
+    The factorial of n (n!), or 1 if n is 0.  Returns None for negative input.
+    """
+    if n < 0:
+        return None # Factorial is not defined for negative numbers
+    elif n == 0:
+        return 1  # Base case: factorial of 0 is 1
+    else:
+        result = 1
+        for i in range(1, n + 1):
+            result *= i
+        return result
+```
+```
