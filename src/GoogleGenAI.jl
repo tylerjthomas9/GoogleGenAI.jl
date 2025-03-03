@@ -169,11 +169,32 @@ function _parse_response(response::HTTP.Messages.Response)
 end
 
 """
-    generate_content(provider::AbstractGoogleProvider, model_name::String, prompt::String; image_path::String, api_kwargs=NamedTuple(), config=GenerateContentConfig()) -> NamedTuple
-    generate_content(api_key::String, model_name::String, prompt::String; image_path::String, api_kwargs=NamedTuple(), config=GenerateContentConfig()) -> NamedTuple
+Extract generation config parameters from the config
+"""
+function _build_generation_config(config::GenerateContentConfig)
+    generation_config = Dict{String,Any}()
+
+    for (field, key) in [
+        (:temperature, "temperature"),
+        (:candidate_count, "candidateCount"),
+        (:max_output_tokens, "maxOutputTokens"),
+        (:stop_sequences, "stopSequences"),
+    ]
+        value = getfield(config, field)
+        if value !== nothing
+            generation_config[key] = value
+        end
+    end
+
+    return generation_config
+end
+
+"""
+    generate_content(provider::AbstractGoogleProvider, model_name::String, prompt::String; image_path::String, config=GenerateContentConfig()) -> NamedTuple
+    generate_content(api_key::String, model_name::String, prompt::String; image_path::String, config=GenerateContentConfig()) -> NamedTuple
     
-    generate_content(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; image_path::String, api_kwargs=NamedTuple(), config=GenerateContentConfig()) -> NamedTuple
-    generate_content(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; image_path::String, api_kwargs=NamedTuple(), config=GenerateContentConfig()) -> NamedTuple
+    generate_content(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; image_path::String, config=GenerateContentConfig()) -> NamedTuple
+    generate_content(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; image_path::String, config=GenerateContentConfig()) -> NamedTuple
 
 Generate content based on a combination of text prompt and an image (optional).
 
@@ -183,13 +204,13 @@ Generate content based on a combination of text prompt and an image (optional).
 - `model_name::String`: The model to use for content generation.
 - `prompt::String`: The text prompt to accompany the image.
 - `image_path::String` (optional): The path to the image file to include in the request.
-
-# API Keyword Arguments
-- `temperature::Float64` (optional): Controls the randomness in the generation process. Higher values result in more random outputs. Typically ranges between 0 and 1.
-- `candidate_count::Int` (optional): The number of generation candidates to consider. Currently, only one candidate can be specified.
-- `max_output_tokens::Int` (optional): The maximum number of tokens that the generated content should contain.
-- `stop_sequences::Vector{String}` (optional): A list of sequences where the generation should stop. Useful for defining natural endpoints in generated content.
-- `safety_settings::Vector{Dict}` (optional): Settings to control the safety aspects of the generated content, such as filtering out unsafe or inappropriate content.
+- `config::GenerateContentConfig` (optional): Configuration for the generation request, including:
+  - `temperature::Float64`: Controls the randomness in the generation process. Higher values result in more random outputs. Typically ranges between 0 and 1.
+  - `candidate_count::Int`: The number of generation candidates to consider. Currently, only one candidate can be specified.
+  - `max_output_tokens::Int`: The maximum number of tokens that the generated content should contain.
+  - `stop_sequences::Vector{String}`: A list of sequences where the generation should stop. Useful for defining natural endpoints in generated content.
+  - `safety_settings::Vector{Dict}`: Settings to control the safety aspects of the generated content, such as filtering out unsafe or inappropriate content.
+  - `http_options`: HTTP request options passed to the underlying request.
 
 # Returns
 - `NamedTuple`: A named tuple containing the following keys:
@@ -204,7 +225,6 @@ function generate_content(
     model_name::String,
     conversation::Vector{Dict{Symbol,Any}};
     image_path::String="",
-    api_kwargs=NamedTuple(),
     config::GenerateContentConfig=GenerateContentConfig(),
 )
     endpoint = "models/$model_name:generateContent"
@@ -216,19 +236,17 @@ function generate_content(
         push!(contents, Dict("role" => role, "parts" => parts))
     end
 
-    safety_settings = get(api_kwargs, :safety_settings, nothing)
-    generation_config = Dict{String,Any}()
-    for key in keys(api_kwargs)
-        if key != :safety_settings
-            generation_config[string(key)] = getproperty(api_kwargs, key)
-        end
+    generation_config = _build_generation_config(config)
+
+    body = Dict("contents" => contents, "generationConfig" => generation_config)
+
+    if config.safety_settings !== nothing
+        body["safetySettings"] = config.safety_settings
     end
 
-    body = Dict(
-        "contents" => contents,
-        "generationConfig" => generation_config,
-        "safetySettings" => safety_settings,
-    )
+    if config.cached_content !== nothing
+        body["cachedContent"] = config.cached_content
+    end
 
     response = _request(provider, endpoint, :POST, body; config.http_options...)
     return _parse_response(response)
@@ -239,11 +257,10 @@ function generate_content(
     model_name::String,
     conversation::Vector{Dict{Symbol,Any}};
     image_path::String="",
-    api_kwargs=NamedTuple(),
     config=GenerateContentConfig(),
 )
     return generate_content(
-        GoogleProvider(; api_key), model_name, conversation; api_kwargs, config
+        GoogleProvider(; api_key), model_name, conversation; image_path, config
     )
 end
 
@@ -252,7 +269,6 @@ function generate_content(
     model_name::String,
     prompt::String;
     image_path::String="",
-    api_kwargs=NamedTuple(),
     config=GenerateContentConfig(),
 )
     return generate_content(
@@ -260,7 +276,6 @@ function generate_content(
         model_name,
         [Dict(:role => "user", :parts => [Dict("text" => prompt)])];
         image_path,
-        api_kwargs,
         config,
     )
 end
@@ -270,7 +285,6 @@ function generate_content(
     model_name::String,
     prompt::String;
     image_path::String="",
-    api_kwargs=NamedTuple(),
     config=GenerateContentConfig(),
 )
     return generate_content(
@@ -278,7 +292,6 @@ function generate_content(
         model_name,
         [Dict(:role => "user", :parts => [Dict("text" => prompt)])];
         image_path,
-        api_kwargs,
         config,
     )
 end
@@ -626,122 +639,6 @@ function delete_cached_content(
 end
 
 """
-    generate_content_with_cache(
-        provider::AbstractGoogleProvider,
-        model_name::String,
-        prompt::Union{String,Vector{Dict{Symbol,Any}}},
-        cached_content::String;
-        api_kwargs=NamedTuple(),
-        http_kwargs=NamedTuple(),
-    ) -> NamedTuple
-
-    generate_content_with_cache(
-        api_key::String,
-        model_name::String,
-        prompt::Union{String,Vector{Dict{Symbol,Any}}},
-        cached_content::String;
-        api_kwargs=NamedTuple(),
-        http_kwargs=NamedTuple(),
-    ) -> NamedTuple
-
-    generate_content_with_cache(
-        api_key::String,
-        model_name::String,
-        cached_content::String,
-        prompt::Union{String,Vector{Dict{Symbol,Any}}};
-        api_kwargs=NamedTuple(),
-        http_kwargs=NamedTuple(),
-    ) -> NamedTuple
-
-Generate new content while referencing an existing cache. The `cached_content`
-argument should be the full cache resource name, e.g. `"cachedContents/12345"`. 
-The prompt can be either a string for single-turn generation, or a vector of 
-conversation messages for multi-turn generation.
-
-# Arguments
-- `provider::AbstractGoogleProvider` or `api_key::String`: The provider instance for API requests or your Google API key as a string.
-- `model_name::String`: The model to use for content generation.
-- `prompt::Union{String,Vector{Dict{Symbol,Any}}}`: The prompt or conversation to generate content for.
-- `cached_content::String`: The resource name of the existing cached content, e.g. `"cachedContents/12345"`.
-
-# API Keyword Arguments
-- `api_kwargs=NamedTuple()`: Keyword arguments that configure generation parameters (e.g., `temperature`, `max_output_tokens`, etc.).
-
-# HTTP Kwargs
-- All keyword arguments supported by the `HTTP.request` function. Documentation can be found here: https://juliaweb.github.io/HTTP.jl/stable/reference/#HTTP.request.
-
-# Returns
-- `NamedTuple`: A named tuple containing the generation results, including `candidates`, `safety_ratings`, `text`, `response_status`, and `finish_reason`.
-"""
-function generate_content_with_cache(
-    provider::AbstractGoogleProvider,
-    model_name::String,
-    prompt::Union{String,Vector{Dict{Symbol,Any}}};
-    cached_content::String,
-    api_kwargs=NamedTuple(),
-    http_kwargs=NamedTuple(),
-)
-    endpoint = "models/$model_name:generateContent"
-
-    generation_config = Dict{String,Any}()
-    for k in keys(api_kwargs)
-        generation_config[string(k)] = getproperty(api_kwargs, k)
-    end
-
-    # Handle both string prompts and conversation arrays
-    contents = if prompt isa String
-        [Dict("parts" => [Dict("text" => prompt)], "role" => "user")]
-    else
-        prompt
-    end
-
-    body = Dict(
-        "contents" => contents,
-        "cachedContent" => cached_content,
-        "generationConfig" => generation_config,
-    )
-
-    response = _request(provider, endpoint, :POST, body; http_kwargs...)
-    return _parse_response(response)
-end
-
-function generate_content_with_cache(
-    api_key::String,
-    model_name::String,
-    prompt::Union{String,Vector{Dict{Symbol,Any}}};
-    cached_content::String,
-    api_kwargs=NamedTuple(),
-    http_kwargs=NamedTuple(),
-)
-    return generate_content_with_cache(
-        GoogleProvider(; api_key),
-        model_name,
-        prompt;
-        cached_content=cached_content,
-        api_kwargs=api_kwargs,
-        http_kwargs=http_kwargs,
-    )
-end
-
-function generate_content_with_cache(
-    api_key::String,
-    model_name::String,
-    cache_name::String,
-    prompt::Union{String,Vector{Dict{Symbol,Any}}};
-    api_kwargs=NamedTuple(),
-    http_kwargs=NamedTuple(),
-)
-    return generate_content_with_cache(
-        GoogleProvider(; api_key),
-        model_name,
-        prompt;
-        cached_content=cache_name,
-        api_kwargs=api_kwargs,
-        http_kwargs=http_kwargs,
-    )
-end
-
-"""
     upload_file(provider::AbstractGoogleProvider, file_path::String; display_name::String="", mime_type::String="application/octet-stream", http_kwargs=NamedTuple()) -> JSON3.Object
 
 Uploads a file using the media.upload endpoint. The file at `file_path` is read, base64-encoded, and sent along with optional metadata.
@@ -867,7 +764,6 @@ end
 export GoogleProvider,
     GenerateContentConfig,
     generate_content,
-    generate_content_with_cache,
     count_tokens,
     embed_content,
     list_models,

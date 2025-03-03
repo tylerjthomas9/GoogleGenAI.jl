@@ -233,11 +233,12 @@ cache_result = create_cached_content(
 
 # Now generate content that references the cached content.
 prompt = "Please summarize this document"
-response = generate_content_with_cache(
+config = GenerateContentConfig(; cached_content=cache_name)
+response = generate_content(
     provider,
     model,
     prompt;
-    cached_content=cache_name
+    config
 )
 println(response.text)
 ```

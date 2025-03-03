@@ -5,29 +5,23 @@ using Test
 
 if haskey(ENV, "GOOGLE_API_KEY")
     const secret_key = ENV["GOOGLE_API_KEY"]
+    http_options = (retries=2,)
 
     @testset "GoogleGenAI.jl" begin
+        config = GenerateContentConfig(; http_options=http_options, max_output_tokens=50)
         model = "gemini-2.0-flash-lite"
         embedding_model = "text-embedding-004"
-        api_kwargs = (max_output_tokens=50,)
-        http_options = (retries=2,)
-        config = GenerateContentConfig(; http_options=http_options)
         # Generate text from text
-        response = generate_content(secret_key, model, "Hello"; api_kwargs, config)
+        response = generate_content(secret_key, model, "Hello"; config)
 
         # Generate text from text+image
         response = generate_content(
-            secret_key,
-            model,
-            "What is this picture?";
-            image_path="example.jpg",
-            api_kwargs,
-            config,
+            secret_key, model, "What is this picture?"; image_path="example.jpg", config
         )
 
         # Multi-turn conversation
         conversation = [Dict(:role => "user", :parts => [Dict(:text => "Hello")])]
-        response = generate_content(secret_key, model, conversation; api_kwargs, config)
+        response = generate_content(secret_key, model, conversation; config)
 
         n_tokens = count_tokens(secret_key, model, "Hello")
         @test n_tokens == 1
@@ -57,12 +51,13 @@ if haskey(ENV, "GOOGLE_API_KEY")
             system_instruction="You are Julia's Number 1 fan",  # optional
         )
         cache_name = cache_result.name
+        config = GenerateContentConfig(;
+            http_options=http_options, max_output_tokens=50, cached_content=cache_name
+        )
 
         # 2) Generate content with the cache (single prompt)
         single_prompt = "What is the main topic of this text?"
-        response_cached = generate_content_with_cache(
-            secret_key, model, cache_name, single_prompt
-        )
+        response_cached = generate_content(secret_key, model, single_prompt; config)
         @test response_cached.response_status == 200
 
         # 3) Generate content with the cache (conversation)
@@ -74,9 +69,7 @@ if haskey(ENV, "GOOGLE_API_KEY")
                 ],
             ),
         ]
-        response_convo = generate_content_with_cache(
-            secret_key, model, cache_name, conversation
-        )
+        response_convo = generate_content(secret_key, model, conversation; config)
         @test response_convo.response_status == 200
 
         # 4) List all cached content and verify the new cache is present
