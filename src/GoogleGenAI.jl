@@ -234,7 +234,11 @@ function generate_content(
 
     generation_config = _build_generation_config(config)
 
-    body = Dict("contents" => contents, "generationConfig" => generation_config, "tools" => config.tools)
+    body = Dict(
+        "contents" => contents,
+        "generationConfig" => generation_config,
+        "tools" => config.tools,
+    )
 
     if config.safety_settings !== nothing
         body["safetySettings"] = config.safety_settings
