@@ -15,15 +15,21 @@ function _get_mime_type(file_path::String)::String
         return "text/html"
     elseif ext == ".csv"
         return "text/csv"
+    elseif ext == ".m4a"
+        return "audio/m4a"
+    elseif ext == ".wav"
+        return "audio/wav"
+    elseif ext == ".mp4"
+        return "video/mp4"
     else
-        return "application/octet-stream"
+        throw("Unknown mime type for file $file_path ($ext). Please specify `mime_type`.")
     end
 end
 
 """
     upload_file(provider::AbstractGoogleProvider, file_path::String; display_name::String="", mime_type::String="application/octet-stream", http_kwargs=NamedTuple()) -> JSON3.Object
 
-Uploads a file using the media.upload endpoint. The file at `file_path` is read, base64-encoded, and sent along with optional metadata.
+Uploads a file using the resumable upload protocol.
 """
 function upload_file(
     provider::AbstractGoogleProvider,
@@ -39,38 +45,52 @@ function upload_file(
         display_name = basename(file_path)
     end
 
-    # Read the file as bytes and base64 encode them
-    file_bytes = read(file_path)
-    file_data = base64encode(file_bytes)
-
-    # For media uploads, use the upload endpoint (note the extra "upload/" segment)
+    # Step 1: Initiate the upload
     url = "$(provider.base_url)/upload/$(provider.api_version)/files?key=$(provider.api_key)"
-    headers = Dict("Content-Type" => mime_type)
-
-    # Build the request body with file metadata and inline data (updated key "mimeType")
-    body = Dict(
-        "file" => Dict(
-            "displayName" => display_name,
-            "mimeType" => mime_type,
-            "inline_data" => Dict("data" => file_data, "mimeType" => mime_type),
-        ),
+    file_size = filesize(file_path)
+    headers = Dict(
+        "X-Goog-Upload-Protocol" => "resumable",
+        "X-Goog-Upload-Command" => "start",
+        "X-Goog-Upload-Header-Content-Length" => string(file_size),
+        "X-Goog-Upload-Header-Content-Type" => mime_type,
+        "Content-Type" => "application/json",
     )
+    body = Dict("file" => Dict("displayName" => display_name))
     serialized_body = JSON3.write(body)
 
-    # Send the POST request
-    response = HTTP.request(:POST, url, headers, serialized_body; http_kwargs...)
+    response = HTTP.request("POST", url, headers, serialized_body; http_kwargs...)
     if response.status >= 400
         status_error(response, String(response.body))
     end
+
+    # Extract the upload URL
+    upload_url = get(Dict(response.headers), "X-Goog-Upload-URL", nothing)
+    if upload_url === nothing
+        error("Failed to obtain upload URL")
+    end
+
+    # Step 2: Upload the file content
+    file_content = read(file_path)
+    upload_headers = Dict(
+        "Content-Length" => string(file_size),
+        "X-Goog-Upload-Offset" => "0",
+        "X-Goog-Upload-Command" => "upload, finalize",
+    )
+
+    response = HTTP.request("PUT", upload_url, upload_headers, file_content; http_kwargs...)
+    if response.status >= 400
+        status_error(response, String(response.body))
+    end
+
     return JSON3.read(String(response.body))[:file]
 end
 
-# Overload for direct API key usage.
+# Overload for direct API key usage (unchanged)
 function upload_file(
     api_key::String,
     file_path::String;
     display_name::String="",
-    mime_type::String="application/octet-stream",
+    mime_type::String="",
     http_kwargs=NamedTuple(),
 )
     return upload_file(

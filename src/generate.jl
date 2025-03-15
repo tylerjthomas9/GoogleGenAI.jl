@@ -108,22 +108,24 @@ end
 
 function _convert_contents(contents::AbstractVector)
     parts = Vector{Dict{String,Union{String,Dict{String,String}}}}()
-    for content in contents
-        if isa(content, String)
-            push!(parts, Dict("text" => content))
-        elseif isa(content, JSON3.Object)
+    for c in contents
+        if isa(c, String)
+            push!(parts, Dict("text" => c))
+        elseif isa(c, JSON3.Object) || isa(c, Dict)
+            cleaned_content = Dict{Symbol,String}(Symbol(k) => string(v) for (k, v) in c)
             push!(
                 parts,
                 Dict(
-                    "file_data" =>
-                        Dict("file_uri" => content.uri, "mime_type" => content.mimeType),
+                    "file_data" => Dict(
+                        "file_uri" => cleaned_content[:uri],
+                        "mime_type" => cleaned_content[:mimeType],
+                    ),
                 ),
             )
         else
             error("Unsupported content type in contents vector: $(typeof(content))")
         end
     end
-    println(parts)
     return parts
 end
 
@@ -135,9 +137,8 @@ function generate_content(
     config=GenerateContentConfig(),
 )
     parts = _convert_contents(contents)
-    return generate_content(
-        provider, model_name, [Dict("parts" => parts)]; image_path, config
-    )
+    conversation = [Dict(:role => "user", :parts => parts)]
+    return generate_content(provider, model_name, conversation; image_path, config)
 end
 
 function generate_content(
@@ -148,8 +149,9 @@ function generate_content(
     config=GenerateContentConfig(),
 )
     parts = _convert_contents(contents)
+    conversation = [Dict(:role => "user", :parts => parts)]
     return generate_content(
-        GoogleProvider(; api_key), model_name, [Dict(:parts => parts)]; image_path, config
+        GoogleProvider(; api_key), model_name, conversation; image_path, config
     )
 end
 

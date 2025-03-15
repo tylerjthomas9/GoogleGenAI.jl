@@ -49,7 +49,7 @@ println(response.text)
 Single image input:
 ```julia
 prompt = "What is this image?"
-image_path = "test/example.jpg"
+image_path = "test/input/example.jpg"
 response = generate_content(secret_key, model, prompt; image_path)
 println(response.text)
 ```
@@ -248,7 +248,7 @@ provider = GoogleProvider(api_key=ENV["GOOGLE_API_KEY"])
 model = "gemini-1.5-flash-002"
 
 # Create cached content (at least 32,786 tokens are required for caching)
-text = read("test/example.txt", String) ^ 7
+text = read("test/input/example.txt", String) ^ 7
 cache_result = create_cached_content(
     provider,
     model,
@@ -280,12 +280,23 @@ Files are only supported in Gemini Developer API.
 using GoogleGenAI
 
 provider = GoogleProvider(api_key=ENV["GOOGLE_API_KEY"])
-file_path = "test/example.jpg"
+file_path = "test/input/example.jpg"
 
 # upload file
 upload_result = upload_file(
-    provider, file_path; display_name="Test JPEG", mime_type="image/jpeg"
+    provider, file_path; display_name="Test File",
 )
+
+# generate content with file
+model = "gemini-2.0-flash-lite"
+prompt = "What is this image?"
+contents = [prompt, upload_result]
+response = generate_content(
+    provider,
+    model,
+    contents;
+)
+println(response.text)
 
 # Get file metadata
 get_result = get_file(provider, upload_result[:name])
