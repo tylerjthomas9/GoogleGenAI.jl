@@ -34,6 +34,50 @@ function status_error(resp, log=nothing)
     return error("Request failed with status $(resp.status) $(resp.message) $logs")
 end
 
+
+const VALID_CATEGORIES = [
+    "HARM_CATEGORY_HATE_SPEECH",
+    "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+    "HARM_CATEGORY_HARASSMENT",
+    "HARM_CATEGORY_DANGEROUS_CONTENT"
+]
+
+const VALID_THRESHOLDS = [
+    "BLOCK_NONE",
+    "BLOCK_ONLY_HIGH",
+    "BLOCK_MEDIUM_AND_ABOVE",
+    "BLOCK_LOW_AND_ABOVE"
+]
+
+"""
+    SafetySetting
+
+# Fields
+- `category::String`: The type of harmful content to filter. Must be one of:
+  - `"HARM_CATEGORY_HATE_SPEECH"`
+  - `"HARM_CATEGORY_SEXUALLY_EXPLICIT"`
+  - `"HARM_CATEGORY_HARASSMENT"`
+  - `"HARM_CATEGORY_DANGEROUS_CONTENT"`
+- `threshold::String`: The sensitivity level for blocking content. Must be one of:
+  - `"BLOCK_NONE"`: Do not block any content.
+  - `"BLOCK_ONLY_HIGH"`: Block only content with a high likelihood of harm.
+  - `"BLOCK_MEDIUM_AND_ABOVE"`: Block content with medium or high likelihood of harm.
+  - `"BLOCK_LOW_AND_ABOVE"`: Block content with low, medium, or high likelihood of harm.
+"""
+Base.@kwdef struct SafetySetting
+    category::String
+    threshold::String
+    function SafetySetting(category::String, threshold::String)
+        if !(category in VALID_CATEGORIES)
+            throw(ArgumentError("Invalid category: '$category'. Must be one of: $VALID_CATEGORIES"))
+        elseif !(threshold in VALID_THRESHOLDS)
+            throw(ArgumentError("Invalid threshold: '$threshold'. Must be one of: $VALID_THRESHOLDS"))
+        end
+        new(category, threshold)
+    end
+end
+
+
 """
     GenerateContentConfig
 
@@ -57,7 +101,7 @@ Optional model configuration parameters.
 - `response_mime_type::Union{Nothing,String}`: Output response media type.
 - `response_schema::Union{Nothing,Dict{Symbol,Any}}`: Schema that the generated candidate text must adhere to.
 - `routing_config::Union{Nothing,Dict{Symbol,Any}}`: Configuration for model router requests.
-- `safety_settings::Union{Nothing,Vector{Dict{Symbol,Any}}}`: Safety settings to block unsafe content.
+- `safety_settings::Union{Nothing,Vector{SafetySetting}}`: Safety settings to block unsafe content.
 - `tools::Union{Nothing,Vector{Dict{Symbol,Any}}}`: Enables interaction with external systems.
 - `tool_config::Union{Nothing,Dict{Symbol,Any}}`: Associates model output to a specific function call.
 - `labels::Union{Nothing,Dict{String,String}}`: User-defined metadata labels.
@@ -86,7 +130,7 @@ Base.@kwdef struct GenerateContentConfig
     response_mime_type::Union{Nothing,String} = nothing
     response_schema::Union{Nothing,Dict{Symbol,Any}} = nothing
     routing_config::Union{Nothing,Dict{Symbol,Any}} = nothing
-    safety_settings::Union{Nothing,Vector{Dict{Symbol,Any}}} = nothing
+    safety_settings::Union{Nothing,SafetySetting} = nothing
     tools::Union{Nothing,Vector{Dict{Symbol,Any}}} = nothing
     tool_config::Union{Nothing,Dict{Symbol,Any}} = nothing
     labels::Union{Nothing,Dict{String,String}} = nothing
@@ -114,7 +158,7 @@ function _request(
     headers = Dict("Content-Type" => "application/json")
 
     serialized_body = isempty(body) ? UInt8[] : JSON3.write(body)
-
+    @info "Request:" url headers serialized_body http_kwargs
     response = HTTP.request(
         method, url; headers=headers, body=serialized_body, http_kwargs...
     )
@@ -237,8 +281,11 @@ function generate_content(
     body = Dict(
         "contents" => contents,
         "generationConfig" => generation_config,
-        "tools" => config.tools,
     )
+
+    if config.tools !== nothing
+        body["tools"] = config.tools
+    end
 
     if config.safety_settings !== nothing
         body["safetySettings"] = config.safety_settings
@@ -291,6 +338,56 @@ function generate_content(
         GoogleProvider(; api_key),
         model_name,
         [Dict(:role => "user", :parts => [Dict("text" => prompt)])];
+        image_path,
+        config,
+    )
+end
+
+function _convert_contents(contents::AbstractVector)
+    parts = Vector{Dict{String, Union{String, Dict{String, String}}}}()
+    for content in contents
+        if isa(content, String)
+            push!(parts, Dict("text" => content))
+        elseif isa(content, JSON3.Object)
+            push!(parts, Dict("file_data" => Dict("file_uri" => content.uri, "mime_type" => content.mimeType)))
+        else
+            error("Unsupported content type in contents vector: $(typeof(content))")
+        end
+    end
+    println(parts)
+    return parts
+end
+
+
+function generate_content(
+    provider::AbstractGoogleProvider,
+    model_name::String,
+    contents::AbstractVector;
+    image_path::String="",
+    config=GenerateContentConfig(),
+)
+    parts = _convert_contents(contents)
+    return generate_content(
+        provider,
+        model_name,
+        [Dict("parts" => parts)];
+        image_path,
+        config,
+    )
+end
+
+function generate_content(
+    api_key::String,
+    model_name::String,
+    contents::AbstractVector;
+    image_path::String="",
+    config=GenerateContentConfig(),
+)
+    parts = _convert_contents(contents)
+    return generate_content(
+        GoogleProvider(; api_key),
+        model_name,
+        [Dict(:parts => parts)];
         image_path,
         config,
     )
@@ -653,13 +750,13 @@ function list_models(provider::AbstractGoogleProvider)
     if !haskey(parsed_response, :models)
         return Vector{Dict}()
     end
-
+    @info "Available models: $(parsed_response)"
     models = [
         Dict(
             :name => replace(model.name, "models/" => ""),
             :version => model.version,
             :display_name => model.displayName,
-            :description => model.description,
+            :description => get(model, :description, nothing),
             :prompt_token_limit => model.inputTokenLimit,
             :output_token_limit => model.outputTokenLimit,
             :supported_generation_methods => model.supportedGenerationMethods,
@@ -868,6 +965,28 @@ function delete_cached_content(
     return delete_cached_content(GoogleProvider(; api_key), cache_name; http_kwargs...)
 end
 
+
+function _get_mime_type(file_path::String)::String
+    ext = lowercase(splitext(file_path)[2])
+    if ext in [".jpg", ".jpeg"]
+        return "image/jpeg"
+    elseif ext == ".png"
+        return "image/png"
+    elseif ext == ".gif"
+        return "image/gif"
+    elseif ext == ".pdf"
+        return "application/pdf"
+    elseif ext == ".txt"
+        return "text/plain"
+    elseif ext == ".html"
+        return "text/html"
+    elseif ext == ".csv"
+        return "text/csv"
+    else
+        return "application/octet-stream"
+    end
+end
+
 """
     upload_file(provider::AbstractGoogleProvider, file_path::String; display_name::String="", mime_type::String="application/octet-stream", http_kwargs=NamedTuple()) -> JSON3.Object
 
@@ -877,16 +996,23 @@ function upload_file(
     provider::AbstractGoogleProvider,
     file_path::String;
     display_name::String="",
-    mime_type::String="application/octet-stream",
+    mime_type::String="",
     http_kwargs=NamedTuple(),
 )
+    if mime_type == ""
+        mime_type = _get_mime_type(file_path)
+    end
+    if display_name == ""
+        display_name = basename(file_path)
+    end
+
     # Read the file as bytes and base64 encode them
     file_bytes = read(file_path)
     file_data = base64encode(file_bytes)
 
     # For media uploads, use the upload endpoint (note the extra "upload/" segment)
     url = "$(provider.base_url)/upload/$(provider.api_version)/files?key=$(provider.api_key)"
-    headers = Dict("Content-Type" => "application/json")
+    headers = Dict("Content-Type" => mime_type)
 
     # Build the request body with file metadata and inline data (updated key "mimeType")
     body = Dict(
@@ -992,6 +1118,7 @@ function delete_file(api_key::String, file_name::String; http_kwargs=NamedTuple(
 end
 
 export GoogleProvider,
+    SafetySetting,
     GenerateContentConfig,
     generate_content,
     generate_content_stream,
