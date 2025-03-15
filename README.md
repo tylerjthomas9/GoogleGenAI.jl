@@ -38,34 +38,20 @@ prompt = "Hello"
 response = generate_content(secret_key, model, prompt)
 println(response.text)
 ```
-outputs
-```julia
-"Hello! 👋  How can I help you today? 😊"
-```
 
+Gemini API config:
 ```julia
-api_kwargs = (max_output_tokens=50,)
-response = generate_content(secret_key, model, prompt; api_kwargs)
+config = GenerateContentConfig(; max_output_tokens=50)
+response = generate_content(secret_key, model, prompt; config)
 println(response.text)
 ```
-outputs
-```julia
-"Hello! 👋  How can I help you today? 😊"
-```
 
+Single image input:
 ```julia
-using GoogleGenAI
-
-secret_key = ENV["GOOGLE_API_KEY"]
-model = "gemini-2.0-flash"
 prompt = "What is this image?"
-image_path = "test/example.jpg"
+image_path = "test/input/example.jpg"
 response = generate_content(secret_key, model, prompt; image_path)
 println(response.text)
-```
-outputs
-```julia
-"The logo for the Julia programming language."
 ```
 
 ### Multi-turn conversations
@@ -74,18 +60,18 @@ outputs
 using GoogleGenAI
 
 provider = GoogleProvider(api_key=ENV["GOOGLE_API_KEY"])
-api_kwargs = (max_output_tokens=50,)
+config = GenerateContentConfig(; max_output_tokens=50)
 model = "gemini-2.0-flash"
 conversation = [
     Dict(:role => "user", :parts => [Dict(:text => "When was Julia 1.0 released?")])
 ]
 
-response = generate_content(provider, model, conversation)
+response = generate_content(provider, model, conversation; config)
 push!(conversation, Dict(:role => "model", :parts => [Dict(:text => response.text)]))
 println("Model: ", response.text) 
 
 push!(conversation, Dict(:role => "user", :parts => [Dict(:text => "Who created the language?")]))
-response = generate_content(provider, model, conversation; api_kwargs)
+response = generate_content(provider, model, conversation; config)
 println("Model: ", response.text)
 ```
 
@@ -211,21 +197,22 @@ learnlm-1.5-pro-experimental
 
 ### Safety Settings
 
-More information about the safety settings can be found [here](https://ai.google.dev/docs/safety_setting_gemini).
+More information about the safety settings can be found [here](https://ai.google.dev/gemini-api/docs/safety-settings).
 
 ```julia
 using GoogleGenAI
 secret_key = ENV["GOOGLE_API_KEY"]
 safety_settings = [
-    Dict("category" => "HARM_CATEGORY_HATE_SPEECH", "threshold" => "HARM_BLOCK_THRESHOLD_UNSPECIFIED"),
-    Dict("category" => "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold" => "BLOCK_ONLY_HIGH"),
-    Dict("category" => "HARM_CATEGORY_HARASSMENT", "threshold" => "BLOCK_MEDIUM_AND_ABOVE"),
-    Dict("category" => "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold" => "BLOCK_LOW_AND_ABOVE")
+    SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="HARM_BLOCK_THRESHOLD_UNSPECIFIED"),
+    SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_ONLY_HIGH"),
+    SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_MEDIUM_AND_ABOVE"),
+    SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_LOW_AND_ABOVE"),
+    SafetySetting(category="HARM_CATEGORY_CIVIC_INTEGRITY", threshold="BLOCK_LOW_AND_ABOVE"),
 ]
 model = "gemini-1.5-flash-latest"
 prompt = "Hello"
-api_kwargs = (safety_settings=safety_settings,)
-response = generate_content(secret_key, model, prompt; api_kwargs)
+config = GenerateContentConfig(; safety_settings)
+response = generate_content(secret_key, model, prompt; config)
 ```
 
 
@@ -261,7 +248,7 @@ provider = GoogleProvider(api_key=ENV["GOOGLE_API_KEY"])
 model = "gemini-1.5-flash-002"
 
 # Create cached content (at least 32,786 tokens are required for caching)
-text = read("test/example.txt", String) ^ 7
+text = read("test/input/example.txt", String) ^ 7
 cache_result = create_cached_content(
     provider,
     model,
@@ -272,7 +259,7 @@ cache_result = create_cached_content(
 
 # Now generate content that references the cached content.
 prompt = "Please summarize this document"
-config = GenerateContentConfig(; cached_content=cache_name)
+config = GenerateContentConfig(; cached_content=cache_result.name)
 response = generate_content(
     provider,
     model,
@@ -280,6 +267,8 @@ response = generate_content(
     config
 )
 println(response.text)
+
+delete_cached_content(provider, cache_result.name)
 ```
 
 ### Files
@@ -291,12 +280,23 @@ Files are only supported in Gemini Developer API.
 using GoogleGenAI
 
 provider = GoogleProvider(api_key=ENV["GOOGLE_API_KEY"])
-file_path = "test/example.jpg"
+file_path = "test/input/example.jpg"
 
 # upload file
 upload_result = upload_file(
-    provider, file_path; display_name="Test JPEG", mime_type="image/jpeg"
+    provider, file_path; display_name="Test File",
 )
+
+# generate content with file
+model = "gemini-2.0-flash-lite"
+prompt = "What is this image?"
+contents = [prompt, upload_result]
+response = generate_content(
+    provider,
+    model,
+    contents;
+)
+println(response.text)
 
 # Get file metadata
 get_result = get_file(provider, upload_result[:name])
@@ -404,32 +404,4 @@ config = GenerateContentConfig(; tools)
 prompt = "Write a function to calculate the factorial of a number."
 response = generate_content(secret_key, model, prompt; config=config)
 println(response.text)
-```
-
-```bash
-Okay, I will write a function to calculate the factorial of a number.
-
-Here's the Python code:
-
-```python
-def factorial(n):
-    """
-    This function calculates the factorial of a non-negative integer.
-
-    Args:
-    n: A non-negative integer.
-
-    Returns:
-    The factorial of n (n!), or 1 if n is 0.  Returns None for negative input.
-    """
-    if n < 0:
-        return None # Factorial is not defined for negative numbers
-    elif n == 0:
-        return 1  # Base case: factorial of 0 is 1
-    else:
-        result = 1
-        for i in range(1, n + 1):
-            result *= i
-        return result
-```
 ```

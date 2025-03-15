@@ -7,9 +7,25 @@ using Test
 if haskey(ENV, "GOOGLE_API_KEY")
     const secret_key = ENV["GOOGLE_API_KEY"]
     http_options = (retries=2,)
+    safety_settings = [
+        SafetySetting(; category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
+        SafetySetting(; category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_ONLY_HIGH"),
+        SafetySetting(;
+            category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_MEDIUM_AND_ABOVE"
+        ),
+        SafetySetting(;
+            category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_LOW_AND_ABOVE"
+        ),
+        SafetySetting(;
+            category="HARM_CATEGORY_CIVIC_INTEGRITY",
+            threshold="HARM_BLOCK_THRESHOLD_UNSPECIFIED",
+        ),
+    ]
 
     @testset "GoogleGenAI.jl" begin
-        config = GenerateContentConfig(; http_options=http_options, max_output_tokens=50)
+        config = GenerateContentConfig(;
+            http_options, safety_settings, max_output_tokens=50
+        )
         model = "gemini-2.0-flash-lite"
         embedding_model = "text-embedding-004"
         # Generate text from text
@@ -17,7 +33,11 @@ if haskey(ENV, "GOOGLE_API_KEY")
 
         # Generate text from text+image
         response = generate_content(
-            secret_key, model, "What is this picture?"; image_path="example.jpg", config
+            secret_key,
+            model,
+            "What is this picture?";
+            image_path="input/example.jpg",
+            config,
         )
 
         # Multi-turn conversation
@@ -82,7 +102,7 @@ if haskey(ENV, "GOOGLE_API_KEY")
 
     @testset "Content Caching" begin
         model = "gemini-1.5-flash-8b"
-        text = read("example.txt", String) * "<><"^13_860
+        text = read("input/example.txt", String) * "<><"^13_860
 
         # 1) Create the cache
         cache_result = create_cached_content(
@@ -145,27 +165,41 @@ if haskey(ENV, "GOOGLE_API_KEY")
     end
 
     @testset "File Management" begin
-        # Ensure the test file exists; if not, create a dummy file.
-        test_file = "example.jpg"
+        # test image, audio, text, video, pdf
+        test_files = [
+            "input/example.jpg",
+            "input/example.m4a",
+            "input/example.txt",
+            "input/example.mp4",
+            "input/example.pdf",
+        ]
+        uploaded_files = []
+        for test_file in test_files
+            # 1) Upload the file.
+            upload_result = upload_file(secret_key, test_file; display_name="Test Upload")
+            push!(uploaded_files, upload_result)
+            @test haskey(upload_result, "name")
+            file_name = upload_result["name"]
 
-        # 1) Upload the file.
-        upload_result = upload_file(
-            secret_key, test_file; display_name="Test JPEG", mime_type="image/jpeg"
-        )
-        @test haskey(upload_result, "name")
-        file_name = upload_result["name"]
+            # 2) Retrieve file metadata.
+            get_result = get_file(secret_key, file_name)
+            @test get_result["name"] == file_name
+        end
 
-        # 2) Retrieve file metadata.
-        get_result = get_file(secret_key, file_name)
-        @test get_result["name"] == file_name
+        # Generate content with all files
+        @info "Sleeping for 5 seconds to allow files to be processed"
+        sleep(5) # allow time for the files to be processed 
+        contents = ["What files do you have?", uploaded_files...]
+        model = "gemini-2.0-flash-lite"
+        response = generate_content(secret_key, model, contents;)
 
-        # 3) List files and verify the uploaded file appears in the list.
+        # Test that all the files are available, then delete them
         list_result = list_files(secret_key; page_size=10)
-        @test any(f -> f["name"] == file_name, list_result)
-
-        # 4) Delete the file.
-        delete_status = delete_file(secret_key, file_name)
-        @test delete_status == 200 || delete_status == 204
+        for file in uploaded_files
+            @test any(f -> f["name"] == file["name"], list_result)
+            delete_status = delete_file(secret_key, file["name"])
+            @test delete_status == 200 || delete_status == 204
+        end
     end
 
     @testset "Structured Generation" begin
