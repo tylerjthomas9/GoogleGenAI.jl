@@ -197,16 +197,17 @@ learnlm-1.5-pro-experimental
 
 ### Safety Settings
 
-More information about the safety settings can be found [here](https://ai.google.dev/docs/safety_setting_gemini).
+More information about the safety settings can be found [here](https://ai.google.dev/gemini-api/docs/safety-settings).
 
 ```julia
 using GoogleGenAI
 secret_key = ENV["GOOGLE_API_KEY"]
 safety_settings = [
-    SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="HARM_BLOCK_THRESHOLD_UNSPECIFIED"),
-    SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_ONLY_HIGH"),
+    SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="HARM_BLOCK_THRESHOLD_UNSPECIFIED"),
+    SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_ONLY_HIGH"),
     SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_MEDIUM_AND_ABOVE"),
-    SafetySetting(category="HARM_CATEGORY_CIVIC_INTEGRITY", threshold="BLOCK_LOW_AND_ABOVE")
+    SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_LOW_AND_ABOVE"),
+    SafetySetting(category="HARM_CATEGORY_CIVIC_INTEGRITY", threshold="BLOCK_LOW_AND_ABOVE"),
 ]
 model = "gemini-1.5-flash-latest"
 prompt = "Hello"

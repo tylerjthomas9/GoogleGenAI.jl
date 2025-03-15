@@ -34,7 +34,6 @@ function status_error(resp, log=nothing)
     return error("Request failed with status $(resp.status) $(resp.message) $logs")
 end
 
-# https://ai.google.dev/gemini-api/docs/safety-settings
 const VALID_CATEGORIES = [
     "HARM_CATEGORY_HARASSMENT",
     "HARM_CATEGORY_HATE_SPEECH",
