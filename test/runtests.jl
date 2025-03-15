@@ -8,15 +8,24 @@ if haskey(ENV, "GOOGLE_API_KEY")
     const secret_key = ENV["GOOGLE_API_KEY"]
     http_options = (retries=2,)
     safety_settings = [
-        SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
-        SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_ONLY_HIGH"),
-        SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_MEDIUM_AND_ABOVE"),
-        SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_LOW_AND_ABOVE"),
-        SafetySetting(category="HARM_CATEGORY_CIVIC_INTEGRITY", threshold="HARM_BLOCK_THRESHOLD_UNSPECIFIED"),
+        SafetySetting(; category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
+        SafetySetting(; category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_ONLY_HIGH"),
+        SafetySetting(;
+            category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_MEDIUM_AND_ABOVE"
+        ),
+        SafetySetting(;
+            category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_LOW_AND_ABOVE"
+        ),
+        SafetySetting(;
+            category="HARM_CATEGORY_CIVIC_INTEGRITY",
+            threshold="HARM_BLOCK_THRESHOLD_UNSPECIFIED",
+        ),
     ]
 
     @testset "GoogleGenAI.jl" begin
-        config = GenerateContentConfig(; http_options, safety_settings, max_output_tokens=50)
+        config = GenerateContentConfig(;
+            http_options, safety_settings, max_output_tokens=50
+        )
         model = "gemini-2.0-flash-lite"
         embedding_model = "text-embedding-004"
         # Generate text from text
