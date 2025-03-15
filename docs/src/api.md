@@ -8,8 +8,10 @@ CurrentModule = GoogleGenAI
 # API
 ```@docs
 GoogleProvider
+SafetySetting
 GenerateContentConfig
 generate_content
+generate_content_stream
 count_tokens
 embed_content
 list_models

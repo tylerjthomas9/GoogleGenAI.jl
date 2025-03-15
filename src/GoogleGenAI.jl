@@ -34,19 +34,21 @@ function status_error(resp, log=nothing)
     return error("Request failed with status $(resp.status) $(resp.message) $logs")
 end
 
-
+# https://ai.google.dev/gemini-api/docs/safety-settings
 const VALID_CATEGORIES = [
+    "HARM_CATEGORY_HARASSMENT",
     "HARM_CATEGORY_HATE_SPEECH",
     "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-    "HARM_CATEGORY_HARASSMENT",
-    "HARM_CATEGORY_DANGEROUS_CONTENT"
+    "HARM_CATEGORY_DANGEROUS_CONTENT",
+    "HARM_CATEGORY_CIVIC_INTEGRITY"
 ]
 
 const VALID_THRESHOLDS = [
     "BLOCK_NONE",
     "BLOCK_ONLY_HIGH",
     "BLOCK_MEDIUM_AND_ABOVE",
-    "BLOCK_LOW_AND_ABOVE"
+    "BLOCK_LOW_AND_ABOVE",
+    "HARM_BLOCK_THRESHOLD_UNSPECIFIED"
 ]
 
 """
@@ -54,15 +56,17 @@ const VALID_THRESHOLDS = [
 
 # Fields
 - `category::String`: The type of harmful content to filter. Must be one of:
+  - `"HARM_CATEGORY_HARASSMENT"`
   - `"HARM_CATEGORY_HATE_SPEECH"`
   - `"HARM_CATEGORY_SEXUALLY_EXPLICIT"`
-  - `"HARM_CATEGORY_HARASSMENT"`
   - `"HARM_CATEGORY_DANGEROUS_CONTENT"`
+  - `"HARM_CATEGORY_CIVIC_INTEGRITY"`
 - `threshold::String`: The sensitivity level for blocking content. Must be one of:
-  - `"BLOCK_NONE"`: Do not block any content.
+  - `"BLOCK_NONE"`: 	Block when high probability of unsafe content is detected.
   - `"BLOCK_ONLY_HIGH"`: Block only content with a high likelihood of harm.
-  - `"BLOCK_MEDIUM_AND_ABOVE"`: Block content with medium or high likelihood of harm.
-  - `"BLOCK_LOW_AND_ABOVE"`: Block content with low, medium, or high likelihood of harm.
+  - `"BLOCK_MEDIUM_AND_ABOVE"`: Block when medium or high probability of unsafe content
+  - `"BLOCK_LOW_AND_ABOVE"`: Block when low, medium or high probability of unsafe content
+  - `"HARM_BLOCK_THRESHOLD_UNSPECIFIED"`: Threshold is unspecified, block using default threshold
 """
 Base.@kwdef struct SafetySetting
     category::String
@@ -130,7 +134,7 @@ Base.@kwdef struct GenerateContentConfig
     response_mime_type::Union{Nothing,String} = nothing
     response_schema::Union{Nothing,Dict{Symbol,Any}} = nothing
     routing_config::Union{Nothing,Dict{Symbol,Any}} = nothing
-    safety_settings::Union{Nothing,SafetySetting} = nothing
+    safety_settings::Union{Nothing,Vector{SafetySetting}} = nothing
     tools::Union{Nothing,Vector{Dict{Symbol,Any}}} = nothing
     tool_config::Union{Nothing,Dict{Symbol,Any}} = nothing
     labels::Union{Nothing,Dict{String,String}} = nothing
@@ -158,7 +162,6 @@ function _request(
     headers = Dict("Content-Type" => "application/json")
 
     serialized_body = isempty(body) ? UInt8[] : JSON3.write(body)
-    @info "Request:" url headers serialized_body http_kwargs
     response = HTTP.request(
         method, url; headers=headers, body=serialized_body, http_kwargs...
     )
