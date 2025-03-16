@@ -115,6 +115,56 @@ for chunk in stream
 end
 ```
 
+### Generate/Edit Images
+
+Generate image using Gemini:
+```julia
+using GoogleGenAI
+
+secret_key = ENV["GOOGLE_API_KEY"]
+config = GenerateContentConfig(
+    response_modalities=["Text", "Image"]
+)
+
+prompt = ("Hi, can you create a 3d rendered image of a pig "*
+            "with wings and a top hat flying over a happy "*
+            "futuristic scifi city with lots of greenery?")
+
+response = generate_content(
+    secret_key,
+    "gemini-2.0-flash-exp-image-generation",
+    prompt;
+    config
+);
+
+if !isempty(response.images)
+    open("gemini-native-image.png", "w") do io
+        write(io, response.images[1].data)
+    end
+end
+```
+
+Edit image with Gemini:
+```julia
+image_path = "gemini-native-image.png"
+
+model = "gemini-2.0-flash-exp-image-generation"
+prompt = "Make the pig a llama"
+response = generate_content(
+    secret_key,
+    model,
+    prompt;
+    image_path,
+    config
+);
+
+if !isempty(response.images)
+    open("gemini-native-image-edited.png", "w") do io
+        write(io, response.images[1].data)
+    end
+end
+```
+
 ### Count Tokens
 ```julia
 using GoogleGenAI
@@ -185,8 +235,11 @@ gemini-1.5-flash-8b-exp-0924
 gemini-2.0-flash-exp
 gemini-2.0-flash
 gemini-2.0-flash-001
+gemini-2.0-flash-exp-image-generation
 gemini-2.0-flash-lite-001
 gemini-2.0-flash-lite
+gemini-2.0-flash-lite-preview-02-05
+gemini-2.0-flash-lite-preview
 gemini-2.0-pro-exp
 gemini-2.0-pro-exp-02-05
 gemini-exp-1206
@@ -194,6 +247,7 @@ gemini-2.0-flash-thinking-exp-01-21
 gemini-2.0-flash-thinking-exp
 gemini-2.0-flash-thinking-exp-1219
 learnlm-1.5-pro-experimental
+gemma-3-27b-it
 ```
 
 ### Safety Settings

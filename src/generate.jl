@@ -2,15 +2,8 @@
 function _build_request_body(
     conversation::Vector{Dict{Symbol,Any}}, config::GenerateContentConfig
 )
-    contents = []
-    for turn in conversation
-        role = turn[:role]
-        parts = turn[:parts]
-        push!(contents, Dict("role" => role, "parts" => parts))
-    end
-
     body = Dict(
-        "contents" => contents, "generationConfig" => _build_generation_config(config)
+        "contents" => conversation, "generationConfig" => _build_generation_config(config)
     )
 
     # Add optional fields
@@ -19,90 +12,6 @@ function _build_request_body(
     config.cached_content !== nothing && (body["cachedContent"] = config.cached_content)
 
     return body
-end
-
-"""
-    generate_content(provider::AbstractGoogleProvider, model_name::String, prompt::String; image_path::String, config=GenerateContentConfig()) -> NamedTuple
-    generate_content(api_key::String, model_name::String, prompt::String; image_path::String, config=GenerateContentConfig()) -> NamedTuple
-    
-    generate_content(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; image_path::String, config=GenerateContentConfig()) -> NamedTuple
-    generate_content(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; image_path::String, config=GenerateContentConfig()) -> NamedTuple
-
-Generate content based on a combination of text prompt and an image (optional).
-
-# Arguments
-- `provider::AbstractGoogleProvider`: The provider instance for API requests.
-- `api_key::String`: Your Google API key as a string. 
-- `model_name::String`: The model to use for content generation.
-- `prompt::String`: The text prompt to accompany the image.
-
-# Keyword Arguments
-- `image_path::String` (optional): The path to the image file to include in the request.
-- `config::GenerateContentConfig` (optional): Configuration for the generation request.
-
-# Returns
-- `NamedTuple`: A named tuple containing the following keys:
-    - `candidates`: A vector of dictionaries, each representing a generation candidate.
-    - `safety_ratings`: A dictionary containing safety ratings for the prompt feedback.
-    - `text`: A string representing the concatenated text from all candidates.
-    - `response_status`: An integer representing the HTTP response status code.
-    - `finish_reason`: A string indicating the reason why the generation process was finished.
-"""
-function generate_content(
-    provider::AbstractGoogleProvider,
-    model_name::String,
-    conversation::Vector{Dict{Symbol,Any}};
-    image_path::String="",
-    config::GenerateContentConfig=GenerateContentConfig(),
-)
-    endpoint = "models/$model_name:generateContent"
-    body = _build_request_body(conversation, config)
-    response = _request(provider, endpoint, :POST, body; config.http_options...)
-    return _parse_response(response)
-end
-
-function generate_content(
-    api_key::String,
-    model_name::String,
-    conversation::Vector{Dict{Symbol,Any}};
-    image_path::String="",
-    config=GenerateContentConfig(),
-)
-    return generate_content(
-        GoogleProvider(; api_key), model_name, conversation; image_path, config
-    )
-end
-
-function generate_content(
-    provider::AbstractGoogleProvider,
-    model_name::String,
-    prompt::String;
-    image_path::String="",
-    config=GenerateContentConfig(),
-)
-    return generate_content(
-        provider,
-        model_name,
-        [Dict(:role => "user", :parts => [Dict("text" => prompt)])];
-        image_path,
-        config,
-    )
-end
-
-function generate_content(
-    api_key::String,
-    model_name::String,
-    prompt::String;
-    image_path::String="",
-    config=GenerateContentConfig(),
-)
-    return generate_content(
-        GoogleProvider(; api_key),
-        model_name,
-        [Dict(:role => "user", :parts => [Dict("text" => prompt)])];
-        image_path,
-        config,
-    )
 end
 
 function _convert_contents(contents::AbstractVector)
@@ -128,6 +37,101 @@ function _convert_contents(contents::AbstractVector)
     return parts
 end
 
+"""
+    generate_content(provider::AbstractGoogleProvider, model_name::String, prompt::String; image_path::String, config=GenerateContentConfig()) -> NamedTuple
+    generate_content(api_key::String, model_name::String, prompt::String; image_path::String, config=GenerateContentConfig()) -> NamedTuple
+    
+    generate_content(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; config=GenerateContentConfig()) -> NamedTuple
+    generate_content(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; config=GenerateContentConfig()) -> NamedTuple
+
+Generate content based on a combination of text prompt and an image (optional).
+
+# Arguments
+- `provider::AbstractGoogleProvider`: The provider instance for API requests.
+- `api_key::String`: Your Google API key as a string. 
+- `model_name::String`: The model to use for content generation.
+- `prompt::String`: The text prompt to accompany the image.
+
+# Keyword Arguments
+- `image_path::String` (optional): The path to the image file to include in the request.
+- `config::GenerateContentConfig` (optional): Configuration for the generation request.
+
+# Returns
+- `NamedTuple`: A named tuple containing the following keys:
+    - `candidates`: A vector of dictionaries, each representing a generation candidate.
+    - `safety_ratings`: A dictionary containing safety ratings for the prompt feedback.
+    - `text`: A string representing the concatenated text from all candidates.
+    - `response_status`: An integer representing the HTTP response status code.
+    - `finish_reason`: A string indicating the reason why the generation process was finished.
+"""
+function generate_content(
+    provider::AbstractGoogleProvider,
+    model_name::String,
+    conversation::Vector{Dict{Symbol,Any}};
+    config::GenerateContentConfig=GenerateContentConfig(),
+)
+    endpoint = "models/$model_name:generateContent"
+    body = _build_request_body(conversation, config)
+    response = _request(provider, endpoint, :POST, body; config.http_options...)
+    return _parse_response(response)
+end
+
+function generate_content(
+    api_key::String,
+    model_name::String,
+    conversation::Vector{Dict{Symbol,Any}};
+    config=GenerateContentConfig(),
+)
+    return generate_content(GoogleProvider(; api_key), model_name, conversation; config)
+end
+
+function generate_content(
+    provider::AbstractGoogleProvider,
+    model_name::String,
+    prompt::String;
+    image_path::String="",
+    config=GenerateContentConfig(),
+)
+    if isempty(image_path)
+        conversation = [Dict(:role => "user", :parts => [Dict("text" => prompt)])]
+    else
+        ext = lowercase(splitext(image_path)[2])
+        if ext in [".jpg", ".jpeg"]
+            mime_type = "image/jpeg"
+        elseif ext == ".png"
+            mime_type = "image/png"
+        else
+            throw("Unkown image file format $image_path")
+        end
+        image_data = open(base64encode, image_path)
+        conversation = [
+            Dict(
+                :role => "user",
+                :parts => [
+                    Dict("text" => prompt),
+                    Dict(
+                        "inline_data" =>
+                            Dict("mime_type" => mime_type, "data" => image_data),
+                    ),
+                ],
+            ),
+        ]
+    end
+    return generate_content(provider, model_name, conversation; config)
+end
+
+function generate_content(
+    api_key::String,
+    model_name::String,
+    prompt::String;
+    image_path::String="",
+    config=GenerateContentConfig(),
+)
+    return generate_content(
+        GoogleProvider(; api_key), model_name, prompt; image_path, config
+    )
+end
+
 function generate_content(
     provider::AbstractGoogleProvider,
     model_name::String,
@@ -136,8 +140,32 @@ function generate_content(
     config=GenerateContentConfig(),
 )
     parts = _convert_contents(contents)
-    conversation = [Dict(:role => "user", :parts => parts)]
-    return generate_content(provider, model_name, conversation; image_path, config)
+    if isempty(image_path)
+        conversation = [Dict(:role => "user", :parts => parts)]
+    else
+        ext = lowercase(splitext(image_path)[2])
+        if ext in [".jpg", ".jpeg"]
+            mime_type = "image/jpeg"
+        elseif ext == ".png"
+            mime_type = "image/png"
+        else
+            throw("Unkown image file format $image_path")
+        end
+        image_data = open(base64encode, image_path)
+        conversation = [
+            Dict(
+                :role => "user",
+                :parts => [
+                    parts...,
+                    Dict(
+                        "inline_data" =>
+                            Dict("mime_type" => mime_type, "data" => image_data),
+                    ),
+                ],
+            ),
+        ]
+    end
+    return generate_content(provider, model_name, conversation; config)
 end
 
 function generate_content(
@@ -147,11 +175,7 @@ function generate_content(
     image_path::String="",
     config=GenerateContentConfig(),
 )
-    parts = _convert_contents(contents)
-    conversation = [Dict(:role => "user", :parts => parts)]
-    return generate_content(
-        GoogleProvider(; api_key), model_name, conversation; image_path, config
-    )
+    return generate_content(GoogleProvider(; api_key), model_name, contents; config)
 end
 
 """
