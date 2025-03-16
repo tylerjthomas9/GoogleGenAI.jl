@@ -183,10 +183,6 @@ function _extract_text(response::JSON3.Object)
 end
 
 function _parse_response(response::HTTP.Messages.Response)
-    return _parse_response(JSON3.read(response.body), response.status)
-end
-
-function _parse_response(response::HTTP.Messages.Response)
     parsed_response = JSON3.read(response.body)
 
     # If there's no "candidates" key, just return a fallback
