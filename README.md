@@ -82,14 +82,15 @@ using GoogleGenAI
 
 secret_key = ENV["GOOGLE_API_KEY"]
 model = "gemini-2.0-flash"
-prompt = "Write a short story about a magic backpack"
+prompt = "Why is the sky blue?"
 
 # Get a channel that yields partial results
 stream = generate_content_stream(secret_key, model, prompt)
 
 # Process the stream as results arrive
+ix = 0
 for chunk in stream
-    println(chunk.text)
+    print(chunk.text)
 end
 ```
 

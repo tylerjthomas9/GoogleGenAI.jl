@@ -183,7 +183,10 @@ function _extract_text(response::JSON3.Object)
 end
 
 function _parse_response(response::HTTP.Messages.Response)
-    parsed_response = JSON3.read(response.body)
+    return _parse_response(JSON3.read(response.body), response.status)
+end
+
+function _parse_response(parsed_response::JSON3.Object, response_status)
 
     # If there's no "candidates" key, just return a fallback
     if !haskey(parsed_response, :candidates)
@@ -191,7 +194,7 @@ function _parse_response(response::HTTP.Messages.Response)
             candidates=[],
             safety_ratings=Dict(),
             text="",
-            response_status=response.status,
+            response_status=response_status,
             finish_reason="UNKNOWN",
         )
     end
@@ -199,10 +202,21 @@ function _parse_response(response::HTTP.Messages.Response)
     all_texts = _extract_text(parsed_response)
     concatenated_texts = join(all_texts, "")
     candidates = [Dict(i) for i in parsed_response[:candidates]]
-    finish_reason = candidates[end][:finishReason]
+
+    finish_reason = if haskey(parsed_response.candidates[end], :finishReason)
+        parsed_response.candidates[end].finishReason
+    else
+        nothing
+    end
 
     safety_rating = if haskey(parsed_response.candidates[end], :safetyRatings)
         Dict(parsed_response.candidates[end].safetyRatings)
+    else
+        Dict()
+    end
+
+    usage_metadata = if haskey(parsed_response, :usageMetadata)
+        Dict(parsed_response.usageMetadata)
     else
         Dict()
     end
@@ -211,8 +225,9 @@ function _parse_response(response::HTTP.Messages.Response)
         candidates=candidates,
         safety_ratings=safety_rating,
         text=concatenated_texts,
-        response_status=response.status,
+        response_status=response_status,
         finish_reason=finish_reason,
+        usage_metadata=usage_metadata,
     )
 end
 

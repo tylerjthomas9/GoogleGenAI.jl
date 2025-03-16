@@ -1,4 +1,26 @@
 
+function _build_request_body(
+    conversation::Vector{Dict{Symbol,Any}}, config::GenerateContentConfig
+)
+    contents = []
+    for turn in conversation
+        role = turn[:role]
+        parts = turn[:parts]
+        push!(contents, Dict("role" => role, "parts" => parts))
+    end
+
+    body = Dict(
+        "contents" => contents, "generationConfig" => _build_generation_config(config)
+    )
+
+    # Add optional fields
+    config.tools !== nothing && (body["tools"] = config.tools)
+    config.safety_settings !== nothing && (body["safetySettings"] = config.safety_settings)
+    config.cached_content !== nothing && (body["cachedContent"] = config.cached_content)
+
+    return body
+end
+
 """
     generate_content(provider::AbstractGoogleProvider, model_name::String, prompt::String; image_path::String, config=GenerateContentConfig()) -> NamedTuple
     generate_content(api_key::String, model_name::String, prompt::String; image_path::String, config=GenerateContentConfig()) -> NamedTuple
@@ -34,30 +56,7 @@ function generate_content(
     config::GenerateContentConfig=GenerateContentConfig(),
 )
     endpoint = "models/$model_name:generateContent"
-
-    contents = []
-    for turn in conversation
-        role = turn[:role]
-        parts = turn[:parts]
-        push!(contents, Dict("role" => role, "parts" => parts))
-    end
-
-    generation_config = _build_generation_config(config)
-
-    body = Dict("contents" => contents, "generationConfig" => generation_config)
-
-    if config.tools !== nothing
-        body["tools"] = config.tools
-    end
-
-    if config.safety_settings !== nothing
-        body["safetySettings"] = config.safety_settings
-    end
-
-    if config.cached_content !== nothing
-        body["cachedContent"] = config.cached_content
-    end
-
+    body = _build_request_body(conversation, config)
     response = _request(provider, endpoint, :POST, body; config.http_options...)
     return _parse_response(response)
 end
@@ -189,156 +188,197 @@ function generate_content_stream(
     config::GenerateContentConfig=GenerateContentConfig(),
 )
     endpoint = "models/$model_name:streamGenerateContent"
+    body = _build_request_body(conversation, config)
 
-    contents = []
-    for turn in conversation
-        role = turn[:role]
-        parts = turn[:parts]
-        push!(contents, Dict("role" => role, "parts" => parts))
-    end
+    # Create a channel for processed chunks
+    processed_channel = Channel{NamedTuple}(32)
 
-    generation_config = _build_generation_config(config)
+    query = Dict(
+        "key" => provider.api_key,
+        "alt" => "sse",  # Critical parameter for SSE format
+    )
 
-    body = Dict("contents" => contents, "generationConfig" => generation_config)
-
-    if config.safety_settings !== nothing
-        body["safetySettings"] = config.safety_settings
-    end
-
-    if config.cached_content !== nothing
-        body["cachedContent"] = config.cached_content
-    end
-
-    # Create a channel to stream the results
-    result_channel = Channel{NamedTuple}(32)
-
-    # Start a task to handle the streaming
     @async begin
         try
-            if isempty(provider.api_key)
-                throw(ArgumentError("api_key cannot be empty"))
-            end
-
-            url = "$(provider.base_url)/$(provider.api_version)/$endpoint?alt=sse&key=$(provider.api_key)"
-            headers = Dict("Content-Type" => "application/json")
-
-            serialized_body = isempty(body) ? UInt8[] : JSON3.write(body)
-
-            # Use a simpler approach with HTTP.get
-            response = HTTP.request(
-                "POST", url, headers, serialized_body; status_exception=false
+            # Make streaming request
+            response = _request(
+                provider,
+                endpoint,
+                :POST,
+                body;
+                stream=true,
+                query=query,
+                config.http_options...,
             )
 
             if response.status >= 400
-                error_msg = String(response.body)
-                put!(
-                    result_channel,
-                    (
-                        error=ErrorException(
-                            "Request failed with status $(response.status): $error_msg"
-                        ),
-                        text="",
-                        finish_reason=nothing,
-                        is_final=true,
-                    ),
-                )
-                return nothing
+                error_response = _parse_response(response)
+                error_msg = get(error_response, :text, "HTTP Error $(response.status)")
+                throw(ErrorException(error_msg))
             end
 
-            # Process the streaming response
+            # Process the SSE stream
             buffer = IOBuffer()
-            current_text = ""
-            finish_reason = nothing
 
-            # Split the response by data: lines
-            response_text = String(response.body)
-            lines = split(response_text, "\n")
+            # Use a Set to track exact chunks we've seen
+            seen_chunks = Set{String}()
 
-            for line in lines
-                # Skip empty lines and SSE prefixes
-                if isempty(line) || startswith(line, ":")
-                    continue
-                end
+            for chunk in response.body
+                write(buffer, chunk)
+                seekstart(buffer)
 
-                # Extract the data part (SSE format: "data: {json}")
-                if !startswith(line, "data:")
-                    continue
-                end
+                while !eof(buffer)
+                    line = readline(buffer; keep=true)
 
-                data_str = strip(replace(line, r"^data:" => ""))
-
-                # Skip empty data or end marker
-                if isempty(data_str) || data_str == "[DONE]"
-                    continue
-                end
-
-                # Parse the JSON data
-                try
-                    parsed_data = JSON3.read(data_str)
-
-                    # Check if there are candidates
-                    if haskey(parsed_data, :candidates) && !isempty(parsed_data.candidates)
-                        candidate = parsed_data.candidates[1]
-
-                        # Extract text from the candidate
-                        if haskey(candidate, :content) && haskey(candidate.content, :parts)
-                            chunk_text = ""
-                            for part in candidate.content.parts
-                                if haskey(part, :text)
-                                    chunk_text *= part.text
-                                end
-                            end
-
-                            # Update the current text with the new chunk
-                            current_text = chunk_text
-
-                            # Check for finish reason
-                            is_final = false
-                            if haskey(candidate, :finishReason) &&
-                                candidate.finishReason != "FINISH_REASON_UNSPECIFIED" &&
-                                candidate.finishReason != ""
-                                finish_reason = candidate.finishReason
-                                is_final = true
-                            end
-
-                            # Put the current chunk into the channel
-                            put!(
-                                result_channel,
-                                (
-                                    text=current_text,
-                                    finish_reason=finish_reason,
-                                    is_final=is_final,
-                                ),
-                            )
-
-                            # If this is the final chunk, we're done
-                            if is_final
-                                break
-                            end
-                        end
+                    # Save partial line for next chunk
+                    if !endswith(line, '\n')
+                        partial = take!(buffer)
+                        write(buffer, partial)
+                        break
                     end
-                catch e
-                    # Skip malformed JSON
-                    @warn "Error parsing SSE data: $e"
-                    continue
+
+                    line = strip(line)
+                    if !startswith(line, "data: ")
+                        continue
+                    end
+
+                    # Extract data
+                    data_str = SubString(line, 7)  # Remove "data: " prefix
+                    if data_str == "[DONE]"
+                        break
+                    end
+
+                    try
+                        # Parse the SSE data chunk
+                        chunk_data = JSON3.read(data_str)
+
+                        # Extract the text from the JSON structure
+                        if !haskey(chunk_data, :candidates) ||
+                            isempty(chunk_data.candidates)
+                            continue
+                        end
+
+                        content = get(chunk_data.candidates[1], :content, nothing)
+                        if content === nothing ||
+                            !haskey(content, :parts) ||
+                            isempty(content.parts)
+                            continue
+                        end
+
+                        # Get the text from the first part
+                        current_text = get(content.parts[1], :text, "")
+
+                        # CRITICAL: Check if we've seen this exact text before
+                        if current_text in seen_chunks
+                            continue  # Skip duplicate chunks entirely
+                        end
+
+                        # Add this chunk to our seen set
+                        push!(seen_chunks, current_text)
+
+                        # Create a parsed response
+                        finish_reason = get(
+                            chunk_data.candidates[1], :finishReason, nothing
+                        )
+
+                        parsed = (
+                            candidates=chunk_data.candidates,
+                            safety_ratings=get(chunk_data, :safetyRatings, Dict{Any,Any}()),
+                            text=current_text,
+                            status=response.status,
+                            finish_reason=finish_reason,
+                            usage_metadata=get(
+                                chunk_data, :usageMetadata, Dict{Symbol,Any}()
+                            ),
+                        )
+
+                        # Send the unique chunk to the channel
+                        put!(processed_channel, parsed)
+
+                        # If the generation is finished, break the loop
+                        if finish_reason !== nothing
+                            break
+                        end
+
+                    catch e
+                        @warn "Failed to parse chunk: $e"
+                    end
                 end
             end
 
-            # Ensure we always send a final chunk if we haven't already
-            if !isempty(current_text) && finish_reason === nothing
-                put!(
-                    result_channel, (text=current_text, finish_reason="STOP", is_final=true)
-                )
-            end
         catch e
-            # Put the error in the channel
-            put!(result_channel, (error=e, text="", finish_reason=nothing, is_final=true))
+            put!(
+                processed_channel, (error=e, text="", finish_reason="ERROR", is_final=true)
+            )
+        finally
+            close(processed_channel)
+        end
+    end
+
+    # Now create a client-facing channel that will combine the chunks appropriately
+    result_channel = Channel{NamedTuple}(32)
+
+    @async begin
+        try
+            full_text = ""
+
+            for chunk in processed_channel
+                # If there's an error, pass it through
+                if haskey(chunk, :error)
+                    put!(result_channel, chunk)
+                    break
+                end
+
+                # Update our combined text
+                full_text = string(full_text, chunk.text)
+
+                # Create a new chunk that includes the full text so far
+                combined_chunk = (
+                    candidates=chunk.candidates,
+                    safety_ratings=chunk.safety_ratings,
+                    text=chunk.text,  # Just the new part
+                    full_text=full_text,  # Full text so far
+                    status=chunk.status,
+                    finish_reason=chunk.finish_reason,
+                    usage_metadata=chunk.usage_metadata,
+                )
+
+                put!(result_channel, combined_chunk)
+
+                # If this is the final chunk, we're done
+                if chunk.finish_reason !== nothing
+                    break
+                end
+            end
         finally
             close(result_channel)
         end
     end
 
     return result_channel
+end
+
+# Helper function for client usage
+function process_gemini_stream(stream)
+    full_response = ""
+    for chunk in stream
+        if haskey(chunk, :error)
+            error("Stream error: $(chunk.error)")
+        end
+
+        # Print just the new content
+        print(chunk.text)
+        flush(stdout)
+
+        # Add to accumulated response
+        full_response *= chunk.text
+
+        # Check if we're done
+        if chunk.finish_reason !== nothing
+            break
+        end
+    end
+    return full_response
 end
 
 function generate_content_stream(
