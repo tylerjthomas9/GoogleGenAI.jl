@@ -186,7 +186,8 @@ function _parse_response(response::HTTP.Messages.Response)
     return _parse_response(JSON3.read(response.body), response.status)
 end
 
-function _parse_response(parsed_response::JSON3.Object, response_status)
+function _parse_response(response::HTTP.Messages.Response)
+    parsed_response = JSON3.read(response.body)
 
     # If there's no "candidates" key, just return a fallback
     if !haskey(parsed_response, :candidates)
@@ -225,7 +226,7 @@ function _parse_response(parsed_response::JSON3.Object, response_status)
         candidates=candidates,
         safety_ratings=safety_rating,
         text=concatenated_texts,
-        response_status=response_status,
+        response_status=response.status,
         finish_reason=finish_reason,
         usage_metadata=usage_metadata,
     )

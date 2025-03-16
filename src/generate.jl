@@ -200,7 +200,6 @@ function generate_content_stream(
 
     @async begin
         try
-            # Make streaming request
             response = _request(
                 provider,
                 endpoint,
@@ -219,8 +218,6 @@ function generate_content_stream(
 
             # Process the SSE stream
             buffer = IOBuffer()
-
-            # Use a Set to track exact chunks we've seen
             seen_chunks = Set{String}()
 
             for chunk in response.body
@@ -249,7 +246,6 @@ function generate_content_stream(
                     end
 
                     try
-                        # Parse the SSE data chunk
                         chunk_data = JSON3.read(data_str)
 
                         # Extract the text from the JSON structure
@@ -267,8 +263,6 @@ function generate_content_stream(
 
                         # Get the text from the first part
                         current_text = get(content.parts[1], :text, "")
-
-                        # CRITICAL: Check if we've seen this exact text before
                         if current_text in seen_chunks
                             continue  # Skip duplicate chunks entirely
                         end
@@ -315,7 +309,6 @@ function generate_content_stream(
         end
     end
 
-    # Now create a client-facing channel that will combine the chunks appropriately
     result_channel = Channel{NamedTuple}(32)
 
     @async begin
@@ -323,16 +316,12 @@ function generate_content_stream(
             full_text = ""
 
             for chunk in processed_channel
-                # If there's an error, pass it through
                 if haskey(chunk, :error)
                     put!(result_channel, chunk)
                     break
                 end
-
-                # Update our combined text
                 full_text = string(full_text, chunk.text)
 
-                # Create a new chunk that includes the full text so far
                 combined_chunk = (
                     candidates=chunk.candidates,
                     safety_ratings=chunk.safety_ratings,
@@ -345,7 +334,6 @@ function generate_content_stream(
 
                 put!(result_channel, combined_chunk)
 
-                # If this is the final chunk, we're done
                 if chunk.finish_reason !== nothing
                     break
                 end
