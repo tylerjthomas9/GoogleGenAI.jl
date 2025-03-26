@@ -125,6 +125,7 @@ gemini-1.5-flash-8b-001
 gemini-1.5-flash-8b-latest
 gemini-1.5-flash-8b-exp-0827
 gemini-1.5-flash-8b-exp-0924
+gemini-2.5-pro-exp-03-25
 gemini-2.0-flash-exp
 gemini-2.0-flash
 gemini-2.0-flash-001
@@ -175,8 +176,7 @@ cache_result = create_cached_content(
     provider,
     model,
     text,
-    ttl=&quot;360s&quot;, # Cache for 60 seconds
-    # system_instruction=&quot;You are Julia&#39;s Number 1 fan&quot;,
+    ttl=&quot;90s&quot;, # Cache for 90 seconds
 )
 
 # Now generate content that references the cached content.
@@ -190,6 +190,14 @@ response = generate_content(
 )
 println(response.text)
 
+
+# list all cached content
+list_result = list_cached_content(provider)
+# get details of a specific cache
+get_result = get_cached_content(provider, cache_result.name)
+# update the TTL of a specific cache
+update_result = update_cached_content(provider, cache_result.name, &quot;90s&quot;) 
+# delete a specific cache
 delete_cached_content(provider, cache_result.name)</code></pre><h3 id="Files"><a class="docs-heading-anchor" href="#Files">Files</a><a id="Files-1"></a><a class="docs-heading-anchor-permalink" href="#Files" title="Permalink"></a></h3><p>Files are only supported in Gemini Developer API.</p><pre><code class="language-julia hljs">using GoogleGenAI
 
 provider = GoogleProvider(api_key=ENV[&quot;GOOGLE_API_KEY&quot;])
@@ -298,4 +306,4 @@ config = GenerateContentConfig(; tools)
 
 prompt = &quot;Write a function to calculate the factorial of a number.&quot;
 response = generate_content(secret_key, model, prompt; config=config)
-println(response.text)</code></pre></article><nav class="docs-footer"><a class="docs-footer-nextpage" href="api/">API »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.9.0 on <span class="colophon-date" title="Wednesday 26 March 2025 16:52">Wednesday 26 March 2025</span>. Using Julia version 1.11.4.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+println(response.text)</code></pre></article><nav class="docs-footer"><a class="docs-footer-nextpage" href="api/">API »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.9.0 on <span class="colophon-date" title="Wednesday 26 March 2025 20:30">Wednesday 26 March 2025</span>. Using Julia version 1.11.4.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
