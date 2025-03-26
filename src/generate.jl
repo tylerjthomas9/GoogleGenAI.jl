@@ -222,108 +222,111 @@ function generate_content_stream(
         "alt" => "sse",  # Critical parameter for SSE format
     )
 
+    url = "$(provider.base_url)/$(provider.api_version)/$endpoint"
+    headers = Dict("Content-Type" => "application/json")
+
     @async begin
         try
-            response = _request(
-                provider,
-                endpoint,
-                :POST,
-                body;
-                stream=true,
-                query=query,
-                config.http_options...,
-            )
-
-            if response.status >= 400
-                error_response = _parse_response(response)
-                error_msg = get(error_response, :text, "HTTP Error $(response.status)")
-                throw(ErrorException(error_msg))
-            end
-
-            # Process the SSE stream
-            buffer = IOBuffer()
-            seen_chunks = Set{String}()
-
-            for chunk in response.body
-                write(buffer, chunk)
-                seekstart(buffer)
-
-                while !eof(buffer)
-                    line = readline(buffer; keep=true)
-
-                    # Save partial line for next chunk
-                    if !endswith(line, '\n')
-                        partial = take!(buffer)
-                        write(buffer, partial)
-                        break
-                    end
-
-                    line = strip(line)
-                    if !startswith(line, "data: ")
+            # Use HTTP.open for true streaming
+            HTTP.open("POST", url; headers=headers, query=query, config.http_options...) do stream
+                # Write the request body
+                write(stream, JSON3.write(body))
+                HTTP.closewrite(stream)
+                
+                # Start reading the response
+                response = HTTP.startread(stream)
+                
+                if response.status >= 400
+                    error_msg = "HTTP Error $(response.status): $(String(response.body))"
+                    throw(ErrorException(error_msg))
+                end
+                
+                # Process the SSE stream
+                buffer = IOBuffer()
+                seen_chunks = Set{String}()
+                
+                while !eof(stream)
+                    chunk = readavailable(stream)
+                    if isempty(chunk)
+                        sleep(0.005)  # Small delay to prevent CPU spinning
                         continue
                     end
-
-                    # Extract data
-                    data_str = SubString(line, 7)  # Remove "data: " prefix
-                    if data_str == "[DONE]"
-                        break
-                    end
-
-                    try
-                        chunk_data = JSON3.read(data_str)
-
-                        # Extract the text from the JSON structure
-                        if !haskey(chunk_data, :candidates) ||
-                            isempty(chunk_data.candidates)
-                            continue
-                        end
-
-                        content = get(chunk_data.candidates[1], :content, nothing)
-                        if content === nothing ||
-                            !haskey(content, :parts) ||
-                            isempty(content.parts)
-                            continue
-                        end
-
-                        # Get the text from the first part
-                        current_text = get(content.parts[1], :text, "")
-                        if current_text in seen_chunks
-                            continue  # Skip duplicate chunks entirely
-                        end
-
-                        # Add this chunk to our seen set
-                        push!(seen_chunks, current_text)
-
-                        # Create a parsed response
-                        finish_reason = get(
-                            chunk_data.candidates[1], :finishReason, nothing
-                        )
-
-                        parsed = (
-                            candidates=chunk_data.candidates,
-                            safety_ratings=get(chunk_data, :safetyRatings, Dict{Any,Any}()),
-                            text=current_text,
-                            status=response.status,
-                            finish_reason=finish_reason,
-                            usage_metadata=get(
-                                chunk_data, :usageMetadata, Dict{Symbol,Any}()
-                            ),
-                        )
-
-                        # Send the unique chunk to the channel
-                        put!(processed_channel, parsed)
-
-                        # If the generation is finished, break the loop
-                        if finish_reason !== nothing
+                    
+                    write(buffer, chunk)
+                    seekstart(buffer)
+                    
+                    while !eof(buffer)
+                        line = readline(buffer; keep=true)
+                        
+                        # Save partial line for next chunk
+                        if !endswith(line, '\n')
+                            partial = take!(buffer)
+                            write(buffer, partial)
                             break
                         end
-
-                    catch e
-                        @warn "Failed to parse chunk: $e"
+                        
+                        line = strip(line)
+                        if !startswith(line, "data: ")
+                            continue
+                        end
+                        
+                        # Extract data
+                        data_str = SubString(line, 7)  # Remove "data: " prefix
+                        if data_str == "[DONE]"
+                            break
+                        end
+                        
+                        try
+                            chunk_data = JSON3.read(data_str)
+                            
+                            # Extract the text from the JSON structure
+                            if !haskey(chunk_data, :candidates) ||
+                                isempty(chunk_data.candidates)
+                                continue
+                            end
+                            
+                            content = get(chunk_data.candidates[1], :content, nothing)
+                            if content === nothing ||
+                                !haskey(content, :parts) ||
+                                isempty(content.parts)
+                                continue
+                            end
+                            
+                            # Get the text from the first part
+                            current_text = get(content.parts[1], :text, "")
+                            if current_text in seen_chunks
+                                continue  # Skip duplicate chunks entirely
+                            end
+                            
+                            # Add this chunk to our seen set
+                            push!(seen_chunks, current_text)
+                            
+                            # Create a parsed response
+                            finish_reason = get(
+                                chunk_data.candidates[1], :finishReason, nothing
+                            )
+                            
+                            parsed = (
+                                candidates=chunk_data.candidates,
+                                safety_ratings=get(chunk_data, :safetyRatings, Dict{Any,Any}()),
+                                text=current_text,
+                                status=response.status,
+                                finish_reason=finish_reason,
+                                usage_metadata=get(
+                                    chunk_data, :usageMetadata, Dict{Symbol,Any}()
+                                ),
+                            )
+                            
+                            # Send the unique chunk to the channel
+                            put!(processed_channel, parsed)
+                            
+                        catch e
+                            @warn "Failed to parse chunk: $e"
+                        end
                     end
                 end
             end
-
+            
         catch e
             put!(
                 processed_channel, (error=e, text="", finish_reason="ERROR", is_final=true)
