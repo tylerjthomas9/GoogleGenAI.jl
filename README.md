@@ -232,6 +232,7 @@ gemini-1.5-flash-8b-001
 gemini-1.5-flash-8b-latest
 gemini-1.5-flash-8b-exp-0827
 gemini-1.5-flash-8b-exp-0924
+gemini-2.5-pro-exp-03-25
 gemini-2.0-flash-exp
 gemini-2.0-flash
 gemini-2.0-flash-001
@@ -308,8 +309,7 @@ cache_result = create_cached_content(
     provider,
     model,
     text,
-    ttl="360s", # Cache for 60 seconds
-    # system_instruction="You are Julia's Number 1 fan",
+    ttl="90s", # Cache for 90 seconds
 )
 
 # Now generate content that references the cached content.
@@ -323,6 +323,14 @@ response = generate_content(
 )
 println(response.text)
 
+
+# list all cached content
+list_result = list_cached_content(provider)
+# get details of a specific cache
+get_result = get_cached_content(provider, cache_result.name)
+# update the TTL of a specific cache
+update_result = update_cached_content(provider, cache_result.name, "90s") 
+# delete a specific cache
 delete_cached_content(provider, cache_result.name)
 ```
 
