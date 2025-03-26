@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Home · GoogleGenAI.jl</title><meta name="title" content="Home · GoogleGenAI.jl"/><meta property="og:title" content="Home · GoogleGenAI.jl"/><meta property="twitter:title" content="Home · GoogleGenAI.jl"/><meta name="description" content="Documentation for GoogleGenAI.jl."/><meta property="og:description" content="Documentation for GoogleGenAI.jl."/><meta property="twitter:description" content="Documentation for GoogleGenAI.jl."/><meta property="og:url" content="https://tylerjthomas9.github.io/GoogleGenAI.jl/"/><meta property="twitter:url" content="https://tylerjthomas9.github.io/GoogleGenAI.jl/"/><link rel="canonical" href="https://tylerjthomas9.github.io/GoogleGenAI.jl/"/><script data-outdated-warner src="assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="assets/documenter.js"></script><script src="search_index.js"></script><script src="siteinfo.js"></script><script src="../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href>GoogleGenAI.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li class="is-active"><a class="tocitem" href>Home</a><ul class="internal"><li><a class="tocitem" href="#Overview"><span>Overview</span></a></li><li><a class="tocitem" href="#Installation"><span>Installation</span></a></li><li><a class="tocitem" href="#Quick-Start"><span>Quick Start</span></a></li><li><a class="tocitem" href="#Structured-Generation"><span>Structured Generation</span></a></li><li class="toplevel"><a class="tocitem" href="#Code-Generation"><span>Code Generation</span></a></li></ul></li><li><a class="tocitem" href="api/">API</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Home</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Home</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/tylerjthomas9/GoogleGenAI.jl.git" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="GoogleGenAI.jl-Docs"><a class="docs-heading-anchor" href="#GoogleGenAI.jl-Docs">GoogleGenAI.jl Docs</a><a id="GoogleGenAI.jl-Docs-1"></a><a class="docs-heading-anchor-permalink" href="#GoogleGenAI.jl-Docs" title="Permalink"></a></h1><h2 id="Overview"><a class="docs-heading-anchor" href="#Overview">Overview</a><a id="Overview-1"></a><a class="docs-heading-anchor-permalink" href="#Overview" title="Permalink"></a></h2><p>A Julia wrapper to the Google generative AI API. For API functionality, see <a href="https://ai.google.dev/tutorials/rest_quickstart">reference documentation</a>.</p><h2 id="Installation"><a class="docs-heading-anchor" href="#Installation">Installation</a><a id="Installation-1"></a><a class="docs-heading-anchor-permalink" href="#Installation" title="Permalink"></a></h2><p>From source:</p><pre><code class="language-julia hljs">julia&gt; using Pkg; Pkg.add(url=&quot;https://github.com/tylerjthomas9/GoogleGenAI.jl/&quot;)</code></pre><pre><code class="language-julia hljs">julia&gt; ]  # enters the pkg interface
+Pkg&gt; add https://github.com/tylerjthomas9/GoogleGenAI.jl/</code></pre><h2 id="Quick-Start"><a class="docs-heading-anchor" href="#Quick-Start">Quick Start</a><a id="Quick-Start-1"></a><a class="docs-heading-anchor-permalink" href="#Quick-Start" title="Permalink"></a></h2><ol><li>Create a <a href="https://aistudio.google.com">secret API key in Google AI Studio</a>.</li><li>Set the <code>GOOGLE_API_KEY</code> environment variable.</li></ol><h3 id="Generate-Content"><a class="docs-heading-anchor" href="#Generate-Content">Generate Content</a><a id="Generate-Content-1"></a><a class="docs-heading-anchor-permalink" href="#Generate-Content" title="Permalink"></a></h3><pre><code class="language-julia hljs">using GoogleGenAI
+
+secret_key = ENV[&quot;GOOGLE_API_KEY&quot;]
+model = &quot;gemini-2.0-flash&quot;
+prompt = &quot;Hello&quot;
+response = generate_content(secret_key, model, prompt)
+println(response.text)</code></pre><p>Gemini API config:</p><pre><code class="language-julia hljs">config = GenerateContentConfig(; max_output_tokens=50)
+response = generate_content(secret_key, model, prompt; config)
+println(response.text)</code></pre><p>Single image input:</p><pre><code class="language-julia hljs">prompt = &quot;What is this image?&quot;
+image_path = &quot;test/input/example.jpg&quot;
+response = generate_content(secret_key, model, prompt; image_path)
+println(response.text)</code></pre><h3 id="Multi-turn-conversations"><a class="docs-heading-anchor" href="#Multi-turn-conversations">Multi-turn conversations</a><a id="Multi-turn-conversations-1"></a><a class="docs-heading-anchor-permalink" href="#Multi-turn-conversations" title="Permalink"></a></h3><pre><code class="language-julia hljs">using GoogleGenAI
+
+provider = GoogleProvider(api_key=ENV[&quot;GOOGLE_API_KEY&quot;])
+config = GenerateContentConfig(; max_output_tokens=50)
+model = &quot;gemini-2.0-flash&quot;
+conversation = [
+    Dict(:role =&gt; &quot;user&quot;, :parts =&gt; [Dict(:text =&gt; &quot;When was Julia 1.0 released?&quot;)])
+]
+
+response = generate_content(provider, model, conversation; config)
+push!(conversation, Dict(:role =&gt; &quot;model&quot;, :parts =&gt; [Dict(:text =&gt; response.text)]))
+println(&quot;Model: &quot;, response.text) 
+
+push!(conversation, Dict(:role =&gt; &quot;user&quot;, :parts =&gt; [Dict(:text =&gt; &quot;Who created the language?&quot;)]))
+response = generate_content(provider, model, conversation; config)
+println(&quot;Model: &quot;, response.text)</code></pre><h3 id="Streaming-Content-Generation"><a class="docs-heading-anchor" href="#Streaming-Content-Generation">Streaming Content Generation</a><a id="Streaming-Content-Generation-1"></a><a class="docs-heading-anchor-permalink" href="#Streaming-Content-Generation" title="Permalink"></a></h3><pre><code class="language-julia hljs">using GoogleGenAI
+
+secret_key = ENV[&quot;GOOGLE_API_KEY&quot;]
+model = &quot;gemini-2.0-flash&quot;
+prompt = &quot;Why is the sky blue?&quot;
+
+# Get a channel that yields partial results
+stream = generate_content_stream(secret_key, model, prompt)
+
+# Process the stream as results arrive
+ix = 0
+for chunk in stream
+    print(chunk.text)
+end</code></pre><p>For multi-turn conversations with streaming:</p><pre><code class="language-julia hljs">using GoogleGenAI
+
+provider = GoogleProvider(api_key=ENV[&quot;GOOGLE_API_KEY&quot;])
+model = &quot;gemini-2.0-flash&quot;
+conversation = [
+    Dict(:role =&gt; &quot;user&quot;, :parts =&gt; [Dict(:text =&gt; &quot;Write a short poem about Julia programming language&quot;)])
+]
+
+# First message
+println(&quot;Generating first response...&quot;)
+stream = generate_content_stream(provider, model, conversation)
+last_response = &quot;&quot;
+
+for chunk in stream
+    println(&quot;Response: &quot;, chunk.text)
+end</code></pre><h3 id="Generate/Edit-Images"><a class="docs-heading-anchor" href="#Generate/Edit-Images">Generate/Edit Images</a><a id="Generate/Edit-Images-1"></a><a class="docs-heading-anchor-permalink" href="#Generate/Edit-Images" title="Permalink"></a></h3><p>Generate image using Gemini:</p><pre><code class="language-julia hljs">using GoogleGenAI
+
+secret_key = ENV[&quot;GOOGLE_API_KEY&quot;]
+config = GenerateContentConfig(
+    response_modalities=[&quot;Text&quot;, &quot;Image&quot;]
+)
+
+prompt = (&quot;Hi, can you create a 3d rendered image of a pig &quot;*
+            &quot;with wings and a top hat flying over a happy &quot;*
+            &quot;futuristic scifi city with lots of greenery?&quot;)
+
+response = generate_content(
+    secret_key,
+    &quot;gemini-2.0-flash-exp-image-generation&quot;,
+    prompt;
+    config
+);
+
+if !isempty(response.images)
+    open(&quot;gemini-native-image.png&quot;, &quot;w&quot;) do io
+        write(io, response.images[1].data)
+    end
+end</code></pre><p>Edit image with Gemini:</p><pre><code class="language-julia hljs">image_path = &quot;gemini-native-image.png&quot;
+
+model = &quot;gemini-2.0-flash-exp-image-generation&quot;
+prompt = &quot;Make the pig a llama&quot;
+response = generate_content(
+    secret_key,
+    model,
+    prompt;
+    image_path,
+    config
+);
+
+if !isempty(response.images)
+    open(&quot;gemini-native-image-edited.png&quot;, &quot;w&quot;) do io
+        write(io, response.images[1].data)
+    end
+end</code></pre><h3 id="Count-Tokens"><a class="docs-heading-anchor" href="#Count-Tokens">Count Tokens</a><a id="Count-Tokens-1"></a><a class="docs-heading-anchor-permalink" href="#Count-Tokens" title="Permalink"></a></h3><pre><code class="language-julia hljs">using GoogleGenAI
+model = &quot;gemini-2.0-flash&quot;
+n_tokens = count_tokens(ENV[&quot;GOOGLE_API_KEY&quot;], model, &quot;The Julia programming language&quot;)
+println(n_tokens)</code></pre><p>outputs</p><pre><code class="language-julia hljs">4</code></pre><h3 id="Create-Embeddings"><a class="docs-heading-anchor" href="#Create-Embeddings">Create Embeddings</a><a id="Create-Embeddings-1"></a><a class="docs-heading-anchor-permalink" href="#Create-Embeddings" title="Permalink"></a></h3><pre><code class="language-julia hljs">using GoogleGenAI
+embeddings = embed_content(ENV[&quot;GOOGLE_API_KEY&quot;], &quot;text-embedding-004&quot;, &quot;Hello&quot;)
+println(size(embeddings.values))</code></pre><p>outputs</p><pre><code class="language-julia hljs">(768,)</code></pre><pre><code class="language-julia hljs">using GoogleGenAI
+embeddings = embed_content(ENV[&quot;GOOGLE_API_KEY&quot;], &quot;text-embedding-004&quot;, [&quot;Hello&quot;, &quot;world&quot;])
+println(embeddings.response_status)
+println(size(embeddings.values[1]))
+println(size(embeddings.values[2]))</code></pre><p>outputs</p><pre><code class="language-julia hljs">200
+(768,)
+(768,)</code></pre><h3 id="List-Models"><a class="docs-heading-anchor" href="#List-Models">List Models</a><a id="List-Models-1"></a><a class="docs-heading-anchor-permalink" href="#List-Models" title="Permalink"></a></h3><pre><code class="language-julia hljs">using GoogleGenAI
+models = list_models(ENV[&quot;GOOGLE_API_KEY&quot;])
+for m in models
+    if &quot;generateContent&quot; in m[:supported_generation_methods]
+        println(m[:name])
+    end
+end</code></pre><p>outputs</p><pre><code class="language-julia hljs">gemini-1.0-pro-vision-latest
+gemini-pro-vision
+gemini-1.5-pro-latest
+gemini-1.5-pro-001
+gemini-1.5-pro-002
+gemini-1.5-pro
+gemini-1.5-flash-latest
+gemini-1.5-flash-001
+gemini-1.5-flash-001-tuning
+gemini-1.5-flash
+gemini-1.5-flash-002
+gemini-1.5-flash-8b
+gemini-1.5-flash-8b-001
+gemini-1.5-flash-8b-latest
+gemini-1.5-flash-8b-exp-0827
+gemini-1.5-flash-8b-exp-0924
+gemini-2.0-flash-exp
+gemini-2.0-flash
+gemini-2.0-flash-001
+gemini-2.0-flash-exp-image-generation
+gemini-2.0-flash-lite-001
+gemini-2.0-flash-lite
+gemini-2.0-flash-lite-preview-02-05
+gemini-2.0-flash-lite-preview
+gemini-2.0-pro-exp
+gemini-2.0-pro-exp-02-05
+gemini-exp-1206
+gemini-2.0-flash-thinking-exp-01-21
+gemini-2.0-flash-thinking-exp
+gemini-2.0-flash-thinking-exp-1219
+learnlm-1.5-pro-experimental
+gemma-3-27b-it</code></pre><h3 id="Safety-Settings"><a class="docs-heading-anchor" href="#Safety-Settings">Safety Settings</a><a id="Safety-Settings-1"></a><a class="docs-heading-anchor-permalink" href="#Safety-Settings" title="Permalink"></a></h3><p>More information about the safety settings can be found <a href="https://ai.google.dev/gemini-api/docs/safety-settings">here</a>.</p><pre><code class="language-julia hljs">using GoogleGenAI
+secret_key = ENV[&quot;GOOGLE_API_KEY&quot;]
+safety_settings = [
+    SafetySetting(category=&quot;HARM_CATEGORY_HARASSMENT&quot;, threshold=&quot;HARM_BLOCK_THRESHOLD_UNSPECIFIED&quot;),
+    SafetySetting(category=&quot;HARM_CATEGORY_HATE_SPEECH&quot;, threshold=&quot;BLOCK_ONLY_HIGH&quot;),
+    SafetySetting(category=&quot;HARM_CATEGORY_SEXUALLY_EXPLICIT&quot;, threshold=&quot;BLOCK_MEDIUM_AND_ABOVE&quot;),
+    SafetySetting(category=&quot;HARM_CATEGORY_DANGEROUS_CONTENT&quot;, threshold=&quot;BLOCK_LOW_AND_ABOVE&quot;),
+    SafetySetting(category=&quot;HARM_CATEGORY_CIVIC_INTEGRITY&quot;, threshold=&quot;BLOCK_LOW_AND_ABOVE&quot;),
+]
+model = &quot;gemini-1.5-flash-latest&quot;
+prompt = &quot;Hello&quot;
+config = GenerateContentConfig(; safety_settings)
+response = generate_content(secret_key, model, prompt; config)</code></pre><h3 id="Content-Caching"><a class="docs-heading-anchor" href="#Content-Caching">Content Caching</a><a id="Content-Caching-1"></a><a class="docs-heading-anchor-permalink" href="#Content-Caching" title="Permalink"></a></h3><p>List models that support content caching:</p><pre><code class="language-julia hljs">using GoogleGenAI
+models = list_models(ENV[&quot;GOOGLE_API_KEY&quot;])
+for m in models
+    if &quot;createCachedContent&quot; in m[:supported_generation_methods]
+        println(m[:name])
+    end
+end</code></pre><pre><code class="language-julia hljs">gemini-1.5-pro-001
+gemini-1.5-pro-002
+gemini-1.5-flash-001
+gemini-1.5-flash-002
+gemini-1.5-flash-8b
+gemini-1.5-flash-8b-001
+gemini-1.5-flash-8b-latest</code></pre><p>Cache content to reuse it across multiple requests:</p><pre><code class="language-julia hljs">using GoogleGenAI
+
+provider = GoogleProvider(api_key=ENV[&quot;GOOGLE_API_KEY&quot;])
+model = &quot;gemini-1.5-flash-002&quot;
+
+# Create cached content (at least 32,786 tokens are required for caching)
+text = read(&quot;test/input/example.txt&quot;, String) ^ 7
+cache_result = create_cached_content(
+    provider,
+    model,
+    text,
+    ttl=&quot;360s&quot;, # Cache for 60 seconds
+    # system_instruction=&quot;You are Julia&#39;s Number 1 fan&quot;,
+)
+
+# Now generate content that references the cached content.
+prompt = &quot;Please summarize this document&quot;
+config = GenerateContentConfig(; cached_content=cache_result.name)
+response = generate_content(
+    provider,
+    model,
+    prompt;
+    config
+)
+println(response.text)
+
+delete_cached_content(provider, cache_result.name)</code></pre><h3 id="Files"><a class="docs-heading-anchor" href="#Files">Files</a><a id="Files-1"></a><a class="docs-heading-anchor-permalink" href="#Files" title="Permalink"></a></h3><p>Files are only supported in Gemini Developer API.</p><pre><code class="language-julia hljs">using GoogleGenAI
+
+provider = GoogleProvider(api_key=ENV[&quot;GOOGLE_API_KEY&quot;])
+file_path = &quot;test/input/example.jpg&quot;
+
+# upload file
+upload_result = upload_file(
+    provider, file_path; display_name=&quot;Test File&quot;,
+)
+
+# generate content with file
+model = &quot;gemini-2.0-flash-lite&quot;
+prompt = &quot;What is this image?&quot;
+contents = [prompt, upload_result]
+response = generate_content(
+    provider,
+    model,
+    contents;
+)
+println(response.text)
+
+# Get file metadata
+get_result = get_file(provider, upload_result[:name])
+
+# List files
+list_result = list_files(provider)
+
+# Delete file
+delete_file(provider, upload_result[:name])</code></pre><h2 id="Structured-Generation"><a class="docs-heading-anchor" href="#Structured-Generation">Structured Generation</a><a id="Structured-Generation-1"></a><a class="docs-heading-anchor-permalink" href="#Structured-Generation" title="Permalink"></a></h2><p>Json </p><pre><code class="language-julia hljs">using GoogleGenAI
+using JSON3
+
+# API key and model
+api_key = ENV[&quot;GOOGLE_API_KEY&quot;]
+model   = &quot;gemini-2.0-flash&quot;
+
+# Define a JSON schema for an Array of Objects
+# Each object has &quot;recipe_name&quot; (a String) and &quot;ingredients&quot; (an Array of Strings).
+schema = Dict(
+    :type =&gt; &quot;ARRAY&quot;,
+    :items =&gt; Dict(
+        :type =&gt; &quot;OBJECT&quot;,
+        :properties =&gt; Dict(
+            :recipe_name =&gt; Dict(:type =&gt; &quot;STRING&quot;),
+            :ingredients =&gt; Dict(
+                :type  =&gt; &quot;ARRAY&quot;,
+                :items =&gt; Dict(:type =&gt; &quot;STRING&quot;)
+            )
+        ),
+        :propertyOrdering =&gt; [&quot;recipe_name&quot;, &quot;ingredients&quot;]
+    )
+)
+
+config = GenerateContentConfig(
+    response_mime_type = &quot;application/json&quot;,
+    response_schema    = schema,
+)
+
+prompt = &quot;List a few popular cookie recipes with exact amounts of each ingredient.&quot;
+response = generate_content(api_key, model, prompt; config=config)
+json_string = response.text
+recipes = JSON3.read(json_string)
+println(recipes)</code></pre><p>outputs</p><pre><code class="language-julia hljs">JSON3.Object[{
+   &quot;recipe_name&quot;: &quot;Chocolate Chip Cookies&quot;,
+   &quot;ingredients&quot;: [
+                    &quot;1 cup (2 sticks) unsalted butter, softened&quot;,
+                    &quot;3/4 cup granulated sugar&quot;,
+                    &quot;3/4 cup packed brown sugar&quot;,
+                    &quot;1 teaspoon vanilla extract&quot;,
+                    &quot;2 large eggs&quot;,
+                    &quot;2 1/4 cups all-purpose flour&quot;,
+                    &quot;1 teaspoon baking soda&quot;,
+                    &quot;1 teaspoon salt&quot;,
+                    &quot;2 cups chocolate chips&quot;
+                  ]
+}, {
+   &quot;recipe_name&quot;: &quot;Peanut Butter Cookies&quot;,
+   &quot;ingredients&quot;: [
+                    &quot;1 cup (2 sticks) unsalted butter, softened&quot;,
+                    &quot;1 cup creamy peanut butter&quot;,
+                    &quot;1 cup granulated sugar&quot;,
+                    &quot;1 cup packed brown sugar&quot;,
+                    &quot;2 large eggs&quot;,
+                    &quot;1 teaspoon vanilla extract&quot;,
+                    &quot;2 1/2 cups all-purpose flour&quot;,
+                    &quot;1 teaspoon baking soda&quot;,
+                    &quot;1/2 teaspoon salt&quot;
+                  ]
+}, {
+   &quot;recipe_name&quot;: &quot;Sugar Cookies&quot;,
+   &quot;ingredients&quot;: [
+                    &quot;1 1/2 cups (3 sticks) unsalted butter, softened&quot;,
+                    &quot;2 cups granulated sugar&quot;,
+                    &quot;4 large eggs&quot;,
+                    &quot;1 teaspoon vanilla extract&quot;,
+                    &quot;5 cups all-purpose flour&quot;,
+                    &quot;2 teaspoons baking powder&quot;,
+                    &quot;1 teaspoon salt&quot;
+                  ]
+}]</code></pre><h1 id="Code-Generation"><a class="docs-heading-anchor" href="#Code-Generation">Code Generation</a><a id="Code-Generation-1"></a><a class="docs-heading-anchor-permalink" href="#Code-Generation" title="Permalink"></a></h1><pre><code class="language-julia hljs">using GoogleGenAI
+
+secret_key = ENV[&quot;GOOGLE_API_KEY&quot;]
+model = &quot;gemini-2.0-flash&quot;
+
+tools = [Dict(:code_execution =&gt; Dict())]
+config = GenerateContentConfig(; tools)
+
+prompt = &quot;Write a function to calculate the factorial of a number.&quot;
+response = generate_content(secret_key, model, prompt; config=config)
+println(response.text)</code></pre></article><nav class="docs-footer"><a class="docs-footer-nextpage" href="api/">API »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.9.0 on <span class="colophon-date" title="Wednesday 26 March 2025 17:20">Wednesday 26 March 2025</span>. Using Julia version 1.11.4.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
