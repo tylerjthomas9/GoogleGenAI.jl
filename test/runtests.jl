@@ -168,6 +168,7 @@ if haskey(ENV, "GOOGLE_API_KEY")
         @test get_result["name"] == cache_name
 
         # 6) Update the cache to extend the TTL
+        sleep(2)
         update_result = update_cached_content(secret_key, cache_name, "90s")
         function parse_timestamp(ts)
             ts = replace(ts, "Z" => "")
