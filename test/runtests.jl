@@ -4,6 +4,18 @@ using GoogleGenAI
 using JSON3
 using Test
 
+# Test internal functions
+@testset "Internal Functions" begin
+    # Test _format_system_instruction
+    instruction = "You are a helpful assistant."
+    formatted = GoogleGenAI._format_system_instruction(instruction)
+    @test formatted isa Dict
+    @test haskey(formatted, "parts")
+    @test formatted["parts"] isa Vector
+    @test length(formatted["parts"]) == 1
+    @test formatted["parts"][1]["text"] == instruction
+end
+
 if haskey(ENV, "GOOGLE_API_KEY")
     const secret_key = ENV["GOOGLE_API_KEY"]
     http_options = (retries=2,)
@@ -109,12 +121,12 @@ if haskey(ENV, "GOOGLE_API_KEY")
         )
 
         response = generate_content(
-            secret_key, "gemini-2.0-flash-exp-image-generation", prompt; config
+            secret_key, "gemini-2.5-flash-preview-05-20", prompt; config
         )
         @test !isempty(response.images)
 
         image_path = "input/example.jpg"
-        model = "gemini-2.0-flash-exp-image-generation"
+        model = "gemini-2.5-flash-preview-05-20"
         prompt = "Make all of the circles green"
         response = generate_content(secret_key, model, prompt; image_path, config)
         @test !isempty(response.images)
@@ -251,6 +263,45 @@ if haskey(ENV, "GOOGLE_API_KEY")
         @test length(recipes) > 0
         @test haskey(recipes[1], "recipe_name")
         @test haskey(recipes[1], "ingredients")
+    end
+
+    @testset "System Instructions" begin
+        model = "gemini-2.0-flash-lite"
+        
+        # Test basic system instruction
+        config = GenerateContentConfig(;
+            http_options=http_options,
+            system_instruction="You are a helpful assistant who always responds in haiku format.",
+            max_output_tokens=50
+        )
+        
+        prompt = "What is the weather like?"
+        response = generate_content(secret_key, model, prompt; config=config)
+        @test response.response_status == 200
+        @test response.text isa String
+        
+        # Test system instruction with conversation
+        conversation = [Dict(:role => "user", :parts => [Dict(:text => "Hello")])]
+        response = generate_content(secret_key, model, conversation; config=config)
+        @test response.response_status == 200
+        @test response.text isa String
+        
+        # Test streaming with system instruction
+        config_stream = GenerateContentConfig(;
+            http_options=http_options,
+            system_instruction="You are a pirate. Always respond as a pirate would.",
+            max_output_tokens=50
+        )
+        
+        stream = generate_content_stream(secret_key, model, "Tell me about the ocean"; config=config_stream)
+        chunks = []
+        for chunk in stream
+            if !haskey(chunk, :error)
+                push!(chunks, chunk)
+            end
+        end
+        @test length(chunks) > 0
+        @test any(chunk -> !isempty(get(chunk, :text, "")), chunks)
     end
 
     @testset "Code Generation" begin

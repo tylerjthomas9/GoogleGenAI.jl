@@ -132,7 +132,7 @@ prompt = ("Hi, can you create a 3d rendered image of a pig "*
 
 response = generate_content(
     secret_key,
-    "gemini-2.0-flash-exp-image-generation",
+    "gemini-2.5-flash-preview-05-20",
     prompt;
     config
 );
@@ -148,7 +148,7 @@ Edit image with Gemini:
 ```julia
 image_path = "gemini-native-image.png"
 
-model = "gemini-2.0-flash-exp-image-generation"
+model = "gemini-2.5-flash-preview-05-20"
 prompt = "Make the pig a llama"
 response = generate_content(
     secret_key,

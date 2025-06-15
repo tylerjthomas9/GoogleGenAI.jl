@@ -2,9 +2,16 @@
 function _build_request_body(
     conversation::Vector{Dict{Symbol,Any}}, config::GenerateContentConfig
 )
-    body = Dict(
-        "contents" => conversation, "generationConfig" => _build_generation_config(config)
-    )
+    body = Dict{String,Any}()
+    
+    # Add system instruction if provided
+    if config.system_instruction !== nothing
+        body["systemInstruction"] = _format_system_instruction(config.system_instruction)
+    end
+    
+    # Add required fields
+    body["contents"] = conversation
+    body["generationConfig"] = _build_generation_config(config)
 
     # Add optional fields
     config.tools !== nothing && (body["tools"] = config.tools)
@@ -12,6 +19,14 @@ function _build_request_body(
     config.cached_content !== nothing && (body["cachedContent"] = config.cached_content)
 
     return body
+end
+
+function _format_system_instruction(instruction::String)
+    return Dict(
+        "parts" => [
+            Dict("text" => instruction)
+        ]
+    )
 end
 
 function _convert_contents(contents::AbstractVector)
