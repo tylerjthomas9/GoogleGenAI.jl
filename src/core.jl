@@ -1,4 +1,3 @@
-
 abstract type AbstractGoogleProvider end
 
 """
@@ -19,6 +18,20 @@ Base.@kwdef struct GoogleProvider <: AbstractGoogleProvider
     api_key::String = ""
     base_url::String = "https://generativelanguage.googleapis.com"
     api_version::String = "v1beta"
+end
+
+function Base.show(io::IO, ::MIME"text/plain", provider::GoogleProvider)
+    api_key = provider.api_key
+    redacted_key = if length(api_key) > 10
+        "...$(api_key[end-2:end])"
+    else
+        "<hidden>"
+    end
+
+    println(io, "GoogleProvider:")
+    println(io, "  api_key:     \"$(redacted_key)\"")
+    println(io, "  base_url:    \"$(provider.base_url)\"")
+    return print(io, "  api_version: \"$(provider.api_version)\"")
 end
 
 # Custom exception for blocked prompts
@@ -43,6 +56,7 @@ const VALID_THRESHOLDS = [
     "BLOCK_MEDIUM_AND_ABOVE",
     "BLOCK_LOW_AND_ABOVE",
     "HARM_BLOCK_THRESHOLD_UNSPECIFIED",
+    "OFF",
 ]
 
 """
@@ -84,6 +98,143 @@ Base.@kwdef struct SafetySetting
 end
 
 """
+    ToolType
+
+Enum representing the types of native tools supported by the Gemini API.
+
+# Values
+- `GOOGLE_SEARCH`: Represents the Google Search tool functionality that allows the model to search for information.
+- `CODE_EXECUTION`: Represents the Code Execution tool which allows the model to execute code snippets.
+- `FUNCTION_CALLING`: Represents the Function Calling capability that enables the model to call user-defined functions.
+"""
+@enum ToolType begin
+    GOOGLE_SEARCH
+    CODE_EXECUTION
+    FUNCTION_CALLING
+end
+
+"""
+    is_native_tool(tool::Dict{Symbol, Any}) -> Tuple{Bool, Union{ToolType, Nothing}}
+
+Check if a tool dictionary represents a native tool and identify its type.
+
+# Arguments
+- `tool::Dict{Symbol, Any}`: The tool dictionary to check
+
+# Returns
+- `Tuple{Bool, Union{ToolType, Nothing}}`: A tuple with a boolean indicating if it's a native tool
+  and the type of the tool if it is native, or nothing if it's not.
+"""
+function is_native_tool(tool::Dict{Symbol,Any})
+    if haskey(tool, :googleSearch)
+        return true, GOOGLE_SEARCH
+    elseif haskey(tool, :codeExecution)
+        return true, CODE_EXECUTION
+    elseif haskey(tool, :functionDeclarations)
+        return true, FUNCTION_CALLING
+    else
+        return false, nothing
+    end
+end
+
+"""
+    FunctionParameter
+
+Represents a parameter for a function declaration.
+
+# Fields
+- `type::String`: The type of the parameter (e.g., "object", "string", "array", etc.).
+- `description::Union{String, Nothing}`: Optional description of the parameter.
+- `properties::Union{Dict{String, Any}, Nothing}`: For "object" type, defines the properties.
+- `items::Union{Dict{String, Any}, Nothing}`: For "array" type, defines the array items.
+- `required::Union{Vector{String}, Nothing}`: For "object" type, lists required property names.
+"""
+Base.@kwdef struct FunctionParameter
+    type::String
+    description::Union{String,Nothing} = nothing
+    properties::Union{Dict{String,Any},Nothing} = nothing
+    items::Union{Dict{String,Any},Nothing} = nothing
+    required::Union{Vector{String},Nothing} = nothing
+end
+
+"""
+    FunctionDeclaration
+
+Represents a function that the model can call.
+
+# Fields
+- `name::String`: The name of the function.
+- `description::Union{String, Nothing}`: Optional description of the function.
+- `parameters::FunctionParameter`: The parameters schema for the function.
+"""
+Base.@kwdef struct FunctionDeclaration
+    name::String
+    description::Union{String,Nothing} = nothing
+    parameters::FunctionParameter
+end
+
+"""
+    FunctionCall
+
+Represents a function call from the model.
+
+# Fields
+- `name::String`: The name of the function to call.
+- `args::Dict{String, Any}`: The arguments for the function call.
+"""
+Base.@kwdef struct FunctionCall
+    name::String
+    args::Dict{String,Any}
+end
+
+"""
+    FunctionCallingConfig
+
+Controls how the model uses function declarations.
+
+# Fields
+- `mode`: "AUTO" (default), "ANY", or "NONE"
+- `allowed_function_names`: Optional list of allowed functions when mode is "ANY"
+"""
+Base.@kwdef struct FunctionCallingConfig
+    mode::String = "AUTO"
+    allowed_function_names::Union{Nothing,Vector{String}} = nothing
+
+    function FunctionCallingConfig(
+        mode::String, allowed_function_names::Union{Nothing,Vector{String}}=nothing
+    )
+        if !(mode in ["AUTO", "ANY", "NONE"])
+            throw(ArgumentError("mode must be one of: AUTO, ANY, NONE"))
+        end
+        return new(mode, allowed_function_names)
+    end
+end
+
+"""
+    ToolConfig
+
+Configuration for tools behavior.
+
+# Fields
+- `function_calling_config`: Configuration for function calling
+"""
+Base.@kwdef struct ToolConfig
+    function_calling_config::Union{Nothing,FunctionCallingConfig} = nothing
+end
+
+"""
+    ThinkingConfig
+
+# Fields
+- `include_thoughts::Bool`: Indicates whether to include thoughts in the response. If true, thoughts are returned only if the model supports thought and thoughts are available.
+- `thinking_budget::Int`: Indicates the thinking budget in tokens.
+"""
+Base.@kwdef struct ThinkingConfig
+    include_thoughts::Bool
+    thinking_budget::Int
+end
+
+"""
     GenerateContentConfig
 
 Optional model configuration parameters.
@@ -107,8 +258,15 @@ Optional model configuration parameters.
 - `response_schema::Union{Nothing,Dict{Symbol,Any}}`: Schema that the generated candidate text must adhere to.
 - `routing_config::Union{Nothing,Dict{Symbol,Any}}`: Configuration for model router requests.
 - `safety_settings::Union{Nothing,Vector{SafetySetting}}`: Safety settings to block unsafe content.
-- `tools::Union{Nothing,Vector{Dict{Symbol,Any}}}`: Enables interaction with external systems.
-- `tool_config::Union{Nothing,Dict{Symbol,Any}}`: Associates model output to a specific function call.
+- `tools::Union{Nothing,Vector{Any}}`: Enables interaction with external systems.
+    This can include native tools, function declarations, or Functions for automatic schema generation:
+    - Native tools are defined directly, e.g., `Dict(:googleSearch => Dict())`, `Dict(:codeExecution => Dict())`.
+    - Function declarations are included using `Dict(:functionDeclarations => [declarations])`.
+    - Julia Functions can be passed directly for automatic schema generation.
+    - Helper functions are available: `create_google_search_tool()`, `create_code_execution_tool()`, `create_function_tool()`.
+- `function_declarations::Union{Nothing,Vector{FunctionDeclaration}}`: Declarations of functions that the model can call.
+    For multi-tool scenarios, consider using the `tools` field instead.
+- `tool_config::Union{Nothing,ToolConfig} = nothing`: Associates model output to a specific function call.
 - `labels::Union{Nothing,Dict{String,String}}`: User-defined metadata labels.
 - `cached_content::Union{Nothing,String}`: Resource name of a context cache.
 - `response_modalities::Union{Nothing,Vector{String}}`: Requested modalities of the response.
@@ -116,7 +274,7 @@ Optional model configuration parameters.
 - `speech_config::Union{Nothing,Dict{Symbol,Any}}`: Speech generation configuration.
 - `audio_timestamp::Union{Nothing,Bool}`: Whether to include audio timestamp in the request.
 - `automatic_function_calling::Union{Nothing,Dict{Symbol,Any}}`: Configuration for automatic function calling.
-- `thinking_config::Union{Nothing,Dict{Symbol,Any}}`: Thinking features configuration.
+- `thinking_config::Union{Nothing,ThinkingConfig}`: Thinking features configuration.
 """
 Base.@kwdef struct GenerateContentConfig
     http_options = (;)
@@ -136,8 +294,9 @@ Base.@kwdef struct GenerateContentConfig
     response_schema::Union{Nothing,Dict{Symbol,Any}} = nothing
     routing_config::Union{Nothing,Dict{Symbol,Any}} = nothing
     safety_settings::Union{Nothing,Vector{SafetySetting}} = nothing
-    tools::Union{Nothing,Vector{Dict{Symbol,Any}}} = nothing
-    tool_config::Union{Nothing,Dict{Symbol,Any}} = nothing
+    tools::Union{Nothing,Vector{Any}} = nothing
+    function_declarations::Union{Nothing,Vector{FunctionDeclaration}} = nothing
+    tool_config::Union{Nothing,ToolConfig} = nothing
     labels::Union{Nothing,Dict{String,String}} = nothing
     cached_content::Union{Nothing,String} = nothing
     response_modalities::Union{Nothing,Vector{String}} = nothing
@@ -145,7 +304,7 @@ Base.@kwdef struct GenerateContentConfig
     speech_config::Union{Nothing,Dict{Symbol,Any}} = nothing
     audio_timestamp::Union{Nothing,Bool} = nothing
     automatic_function_calling::Union{Nothing,Dict{Symbol,Any}} = nothing
-    thinking_config::Union{Nothing,Dict{Symbol,Any}} = nothing
+    thinking_config::Union{Nothing,ThinkingConfig} = nothing
 end
 
 function _request(
@@ -182,54 +341,46 @@ function _extract_text(response::JSON3.Object)
     return all_texts
 end
 
-function _parse_response(response)
-    body = JSON3.read(response.body)
+"""
+    to_api_function_declaration(func_decl::FunctionDeclaration) -> Dict{String, Any}
 
-    text_parts = String[]
-    image_parts = []
-    candidates = get(body, :candidates, [])
+Converts a FunctionDeclaration to the API-compatible dictionary format.
 
-    finish_reason = nothing
-    if !isempty(candidates)
-        finish_reason = get(candidates[1], :finishReason, nothing)
+# Arguments
+- `func_decl::FunctionDeclaration`: The function declaration to convert.
 
-        content = get(candidates[1], :content, nothing)
-        if content !== nothing && haskey(content, :parts)
-            for part in content.parts
-                if haskey(part, :text) && part.text !== nothing
-                    if !isempty(strip(part.text))
-                        push!(text_parts, part.text)
-                    end
-                elseif haskey(part, :inlineData) && part.inlineData !== nothing
-                    inline_data = part.inlineData
-                    mime_type = get(inline_data, :mimeType, "image/png")
-                    data = get(inline_data, :data, "")
+# Returns
+- `Dict{String, Any}`: The API-compatible dictionary.
+"""
+function to_api_function_declaration(func_decl::FunctionDeclaration)
+    params = Dict{String,Any}()
+    params["type"] = func_decl.parameters.type
 
-                    data = strip(data)
-                    if isempty(data)
-                        continue
-                    end
-                    image_data = Base64.base64decode(data)
-                    push!(image_parts, (data=image_data, mime_type=mime_type))
-                end
-            end
-        end
-    else
-        text = get(body, :text, "")
-        !isempty(text) && push!(text_parts, text)
+    if func_decl.parameters.description !== nothing
+        params["description"] = func_decl.parameters.description
     end
 
-    full_text = join(text_parts, "")
+    if func_decl.parameters.properties !== nothing
+        params["properties"] = func_decl.parameters.properties
+    end
 
-    return (
-        candidates=candidates,
-        safety_ratings=get(body, :safetyRatings, Dict{Symbol,Any}()),
-        text=full_text,
-        images=image_parts,
-        response_status=response.status,
-        finish_reason=finish_reason,
-        usage_metadata=get(body, :usageMetadata, Dict{Symbol,Any}()),
-    )
+    if func_decl.parameters.items !== nothing
+        params["items"] = func_decl.parameters.items
+    end
+
+    if func_decl.parameters.required !== nothing
+        params["required"] = func_decl.parameters.required
+    end
+
+    decl = Dict{String,Any}()
+    decl["name"] = func_decl.name
+
+    if func_decl.description !== nothing
+        decl["description"] = func_decl.description
+    end
+
+    decl["parameters"] = params
+    return decl
 end
 
 """
