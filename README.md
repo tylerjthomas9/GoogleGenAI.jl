@@ -132,7 +132,7 @@ prompt = ("Hi, can you create a 3d rendered image of a pig "*
 
 response = generate_content(
     secret_key,
-    "gemini-2.5-flash-preview-05-20",
+    "gemini-2.0-flash-exp-image-generation",
     prompt;
     config
 );
@@ -148,7 +148,7 @@ Edit image with Gemini:
 ```julia
 image_path = "gemini-native-image.png"
 
-model = "gemini-2.5-flash-preview-05-20"
+model = "gemini-2.0-flash-exp-image-generation"
 prompt = "Make the pig a llama"
 response = generate_content(
     secret_key,
@@ -216,29 +216,20 @@ end
 ```
 outputs
 ```julia
-gemini-1.0-pro-vision-latest
-gemini-pro-vision
-gemini-1.5-pro-latest
-gemini-1.5-pro-001
-gemini-1.5-pro-002
-gemini-1.5-pro
-gemini-1.5-flash-latest
-gemini-1.5-flash-001
-gemini-1.5-flash-001-tuning
-gemini-1.5-flash
-gemini-1.5-flash-002
-gemini-1.5-flash-8b
-gemini-1.5-flash-8b-001
-gemini-1.5-flash-8b-latest
-gemini-1.5-flash-8b-exp-0827
-gemini-1.5-flash-8b-exp-0924
 gemini-2.5-pro-exp-03-25
+gemini-2.5-pro-preview-03-25
+gemini-2.5-flash-preview-04-17
+gemini-2.5-flash-preview-05-20
+gemini-2.5-flash-preview-04-17-thinking
+gemini-2.5-pro-preview-05-06
+gemini-2.5-pro-preview-06-05
 gemini-2.0-flash-exp
 gemini-2.0-flash
 gemini-2.0-flash-001
 gemini-2.0-flash-exp-image-generation
 gemini-2.0-flash-lite-001
 gemini-2.0-flash-lite
+gemini-2.0-flash-preview-image-generation
 gemini-2.0-flash-lite-preview-02-05
 gemini-2.0-flash-lite-preview
 gemini-2.0-pro-exp
@@ -247,8 +238,14 @@ gemini-exp-1206
 gemini-2.0-flash-thinking-exp-01-21
 gemini-2.0-flash-thinking-exp
 gemini-2.0-flash-thinking-exp-1219
-learnlm-1.5-pro-experimental
+gemini-2.5-flash-preview-tts
+gemini-2.5-pro-preview-tts
+learnlm-2.0-flash-experimental
+gemma-3-1b-it
+gemma-3-4b-it
+gemma-3-12b-it
 gemma-3-27b-it
+gemma-3n-e4b-it
 ```
 
 ### Safety Settings
@@ -263,12 +260,27 @@ safety_settings = [
     SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_ONLY_HIGH"),
     SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_MEDIUM_AND_ABOVE"),
     SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_LOW_AND_ABOVE"),
-    SafetySetting(category="HARM_CATEGORY_CIVIC_INTEGRITY", threshold="BLOCK_LOW_AND_ABOVE"),
+    SafetySetting(category="HARM_CATEGORY_CIVIC_INTEGRITY", threshold="OFF"),
 ]
-model = "gemini-1.5-flash-latest"
+model = "gemini-2.0-flash-lite"
 prompt = "Hello"
 config = GenerateContentConfig(; safety_settings)
 response = generate_content(secret_key, model, prompt; config)
+```
+
+### Thinking 
+
+The Gemini 2.5 series models use an internal "thinking process" during response generation. This process contributes to their improved reasoning capabilities and helps them use multi-step planning to solve complex tasks. This thinking can be limited by setting the `thinking_budget`. 
+
+```julia
+using GoogleGenAI
+secret_key = ENV["GOOGLE_API_KEY"]
+thinking_config = ThinkingConfig(; thinking_budget=100)
+config = GenerateContentConfig(;
+    thinking_config
+)
+model = "gemini-2.5-flash-preview-05-20"
+response = generate_content(secret_key, model, "Hello"; config)
 ```
 
 
@@ -286,13 +298,25 @@ for m in models
 end
 ```
 ```julia
-gemini-1.5-pro-001
-gemini-1.5-pro-002
-gemini-1.5-flash-001
-gemini-1.5-flash-002
-gemini-1.5-flash-8b
-gemini-1.5-flash-8b-001
-gemini-1.5-flash-8b-latest
+gemini-2.5-pro-exp-03-25
+gemini-2.5-pro-preview-03-25
+gemini-2.5-flash-preview-04-17
+gemini-2.5-flash-preview-05-20
+gemini-2.5-flash-preview-04-17-thinking
+gemini-2.5-pro-preview-05-06
+gemini-2.5-pro-preview-06-05
+gemini-2.0-flash
+gemini-2.0-flash-001
+gemini-2.0-flash-lite-001
+gemini-2.0-flash-lite
+gemini-2.0-flash-lite-preview-02-05
+gemini-2.0-flash-lite-preview
+gemini-2.0-pro-exp
+gemini-2.0-pro-exp-02-05
+gemini-exp-1206
+gemini-2.0-flash-thinking-exp-01-21
+gemini-2.0-flash-thinking-exp
+gemini-2.0-flash-thinking-exp-1219
 ```
 
 Cache content to reuse it across multiple requests:
@@ -373,7 +397,6 @@ delete_file(provider, upload_result[:name])
 
 ## Structured Generation
 
-
 Json 
 ```julia
 using GoogleGenAI
@@ -411,6 +434,7 @@ json_string = response.text
 recipes = JSON3.read(json_string)
 println(recipes)
 ```
+
 outputs
 ```julia
 JSON3.Object[{
@@ -467,4 +491,116 @@ config = GenerateContentConfig(; tools)
 prompt = "Write a function to calculate the factorial of a number."
 response = generate_content(secret_key, model, prompt; config=config)
 println(response.text)
+```
+
+# Function Calling
+
+## Manually declare and invoke a function for function calling
+
+```julia
+using GoogleGenAI
+using JSON3
+
+# Ensure the API key is set in your environment variables
+if !haskey(ENV, "GOOGLE_API_KEY")
+    error("GOOGLE_API_KEY environment variable not set.")
+end
+api_key = ENV["GOOGLE_API_KEY"]
+
+# Step 1: Create the initial user message
+user_message = Dict(
+    :role => "user", 
+    :parts => [Dict(:text => "What's the weather like in Paris?")]
+)
+
+# Step 2: Define your function declaration
+weather_function = FunctionDeclaration(
+    "get_weather", 
+    "Get current weather information for a location",
+    Dict{String, Any}(
+        "type" => "object",
+        "properties" => Dict{String, Any}(
+            "location" => Dict{String, Any}(
+                "type" => "string",
+                "description" => "City or location to get weather for"
+            ),
+            "unit" => Dict{String, Any}(
+                "type" => "string",
+                "description" => "Temperature unit (celsius or fahrenheit)",
+                "enum" => ["celsius", "fahrenheit"]
+            )
+        ),
+        "required" => ["location"]
+    )
+)
+
+# Step 3: Configure the model to force function calling
+fc_config = FunctionCallingConfig(mode="ANY")
+tool_config = ToolConfig(function_calling_config=fc_config)
+config = GenerateContentConfig(
+    function_declarations=[weather_function],
+    tool_config=tool_config,
+    temperature=0.2 # Lower temperature for more predictable function calls
+)
+
+# Step 4: Get the initial response from the model, which should be a function call
+response = generate_content(
+    api_key,
+    "gemini-2.0-flash",
+    [user_message]; # Pass the conversation as a Vector
+    config=config
+)
+
+# Step 5: Extract the function call details and construct the model's turn
+function_name = response.function_calls[1].name
+args = response.function_calls[1].args
+model_message = Dict(
+    :role => "model",
+    :parts => [
+        Dict(
+            :functionCall => Dict(
+                :name => function_name,
+                :args => args
+            )
+        )
+    ]
+)
+println("\nModel message: ", JSON3.write(model_message))
+
+# Step 6: Execute the function (simulated) and create the function's response message
+# In a real app, you would call your actual get_weather function here.
+weather_result = Dict(
+    "temperature" => 18,
+    "condition" => "Sunny",
+    "humidity" => 65
+)
+
+function_message = Dict(
+    :role => "function",
+    :parts => [
+        Dict(
+            :functionResponse => Dict(
+                :name => function_name,
+                :response => weather_result
+            )
+        )
+    ]
+)
+println("\nFunction message: ", JSON3.write(function_message))
+
+# Step 7: Assemble the full conversation history
+conversation_history = [
+    user_message,
+    model_message,
+    function_message
+]
+
+# Step 8: Get the final, natural language response from the model
+final_response = generate_content(
+    api_key,
+    "gemini-2.0-flash",
+    conversation_history # Pass the full conversation history
+)
+
+println("\nFinal response: $(final_response.text)")
 ```

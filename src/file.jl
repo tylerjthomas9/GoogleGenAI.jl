@@ -1,31 +1,4 @@
 
-function _get_mime_type(file_path::String)::String
-    ext = lowercase(splitext(file_path)[2])
-    if ext in [".jpg", ".jpeg"]
-        return "image/jpeg"
-    elseif ext == ".png"
-        return "image/png"
-    elseif ext == ".gif"
-        return "image/gif"
-    elseif ext == ".pdf"
-        return "application/pdf"
-    elseif ext == ".txt"
-        return "text/plain"
-    elseif ext == ".html"
-        return "text/html"
-    elseif ext == ".csv"
-        return "text/csv"
-    elseif ext == ".m4a"
-        return "audio/m4a"
-    elseif ext == ".wav"
-        return "audio/wav"
-    elseif ext == ".mp4"
-        return "video/mp4"
-    else
-        throw("Unknown mime type for file $file_path ($ext). Please specify `mime_type`.")
-    end
-end
-
 """
     upload_file(provider::AbstractGoogleProvider, file_path::String; display_name::String="", mime_type::String="application/octet-stream", http_kwargs=NamedTuple()) -> JSON3.Object
 

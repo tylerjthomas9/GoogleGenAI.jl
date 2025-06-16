@@ -1,32 +1,204 @@
+function _format_system_instruction(instruction::String)
+    return Dict("parts" => [Dict("text" => instruction)])
+end
 
 function _build_request_body(
     conversation::Vector{Dict{Symbol,Any}}, config::GenerateContentConfig
 )
     body = Dict{String,Any}()
-    
-    # Add system instruction if provided
     if config.system_instruction !== nothing
         body["systemInstruction"] = _format_system_instruction(config.system_instruction)
     end
-    
-    # Add required fields
     body["contents"] = conversation
     body["generationConfig"] = _build_generation_config(config)
+    body["tools"] = []
 
     # Add optional fields
-    config.tools !== nothing && (body["tools"] = config.tools)
     config.safety_settings !== nothing && (body["safetySettings"] = config.safety_settings)
     config.cached_content !== nothing && (body["cachedContent"] = config.cached_content)
+
+    if config.tools !== nothing
+        function_declarations = []
+
+        for tool in config.tools
+            if isa(tool, Function)
+                try
+                    decl = FunctionDeclaration(tool)
+                    api_decl = to_api_function_declaration(decl)
+                    push!(function_declarations, api_decl)
+                catch e
+                    @warn "Failed to convert function $(nameof(tool)) to declaration: $e"
+                end
+            elseif isa(tool, Dict)
+                string_tool = Dict{String,Any}()
+                for (k, v) in tool
+                    string_tool[string(k)] = v
+                end
+                push!(body["tools"], string_tool)
+            else
+                @warn "Ignoring unsupported tool type: $(typeof(tool))"
+            end
+        end
+
+        if !isempty(function_declarations)
+            push!(
+                body["tools"],
+                Dict{String,Any}("functionDeclarations" => function_declarations),
+            )
+        end
+    end
+
+    if config.function_declarations !== nothing
+        api_decls = [to_api_function_declaration(fd) for fd in config.function_declarations]
+        found = false
+        for tool in body["tools"]
+            if haskey(tool, "functionDeclarations")
+                append!(tool["functionDeclarations"], api_decls)
+                found = true
+                break
+            end
+        end
+
+        if !found
+            push!(body["tools"], Dict{String,Any}("functionDeclarations" => api_decls))
+        end
+    end
+
+    if config.tool_config !== nothing
+        tool_config_dict = Dict{String,Any}()
+
+        if config.tool_config.function_calling_config !== nothing
+            fc_config = config.tool_config.function_calling_config
+            function_calling_dict = Dict{String,Any}("mode" => fc_config.mode)
+
+            if fc_config.allowed_function_names !== nothing
+                function_calling_dict["allowedFunctionNames"] =
+                    fc_config.allowed_function_names
+            end
+
+            tool_config_dict["functionCallingConfig"] = function_calling_dict
+        end
+
+        body["toolConfig"] = tool_config_dict
+    end
 
     return body
 end
 
-function _format_system_instruction(instruction::String)
-    return Dict(
-        "parts" => [
-            Dict("text" => instruction)
-        ]
+"""
+    _parse_response(response) -> NamedTuple
+
+Parse the API response into a structured format.
+
+# Arguments
+- `response`: The HTTP response object from the API.
+
+# Returns
+- NamedTuple with fields including candidates, safety_ratings, text, images, function_calls, etc.
+"""
+function _parse_response(response)
+    body = JSON3.read(response.body)
+
+    text_parts = String[]
+    image_parts = []
+    function_calls = []
+    candidates = get(body, :candidates, [])
+
+    finish_reason = nothing
+    if !isempty(candidates)
+        finish_reason = get(candidates[1], :finishReason, nothing)
+
+        content = get(candidates[1], :content, nothing)
+        if content !== nothing && haskey(content, :parts)
+            for part in content.parts
+                if haskey(part, :text) && part.text !== nothing
+                    if !isempty(strip(part.text))
+                        push!(text_parts, part.text)
+                    end
+                elseif haskey(part, :inlineData) && part.inlineData !== nothing
+                    inline_data = part.inlineData
+                    mime_type = get(inline_data, :mimeType, "image/png")
+                    data = get(inline_data, :data, "")
+
+                    data = strip(data)
+                    if isempty(data)
+                        continue
+                    end
+                    image_data = Base64.base64decode(data)
+                    push!(image_parts, (data=image_data, mime_type=mime_type))
+                elseif haskey(part, :functionCall) && part.functionCall !== nothing
+                    fc = part.functionCall
+                    name = get(fc, :name, "")
+                    args_str = get(fc, :args, "{}")
+
+                    # Parse args - it should be a JSON object already
+                    args = if typeof(args_str) <: AbstractDict
+                        Dict{String,Any}(String(k) => v for (k, v) in pairs(args_str))
+                    else
+                        JSON3.read(args_str, Dict{String,Any})
+                    end
+
+                    push!(function_calls, FunctionCall(name, args))
+                end
+            end
+        end
+    else
+        text = get(body, :text, "")
+        !isempty(text) && push!(text_parts, text)
+    end
+
+    full_text = join(text_parts, "")
+
+    return (
+        candidates=candidates,
+        safety_ratings=get(body, :safetyRatings, Dict{Symbol,Any}()),
+        text=full_text,
+        images=image_parts,
+        function_calls=isempty(function_calls) ? nothing : function_calls,
+        response_status=response.status,
+        finish_reason=finish_reason,
+        usage_metadata=get(body, :usageMetadata, Dict{Symbol,Any}()),
     )
+end
+
+"""
+    add_function_result_to_conversation(conversation::Vector{Dict{Symbol, Any}}, function_name::String, function_result::Any)
+
+Adds a function result to a conversation for multi-turn function calling.
+
+# Arguments
+- `conversation::Vector{Dict{Symbol, Any}}`: The existing conversation.
+- `function_name::String`: The name of the function that was called.
+- `function_result::Any`: The result returned by the function.
+
+# Returns
+- Updated conversation vector with the function result added.
+"""
+function add_function_result_to_conversation(
+    conversation::Vector{<:Dict}, function_name::String, function_result::Any
+)
+    result_str = if isa(function_result, String)
+        function_result
+    elseif isa(function_result, Dict) || isa(function_result, Vector)
+        JSON3.write(function_result)
+    else
+        string(function_result)
+    end
+
+    function_response = Dict(
+        :role => "function",
+        :parts => [
+            Dict(
+                :functionResponse => Dict(
+                    :name => function_name,
+                    :response => Dict(:content => result_str),
+                ),
+            ),
+        ],
+    )
+
+    push!(conversation, function_response)
+    return conversation
 end
 
 function _convert_contents(contents::AbstractVector)
@@ -76,6 +248,7 @@ Generate content based on a combination of text prompt and an image (optional).
     - `candidates`: A vector of dictionaries, each representing a generation candidate.
     - `safety_ratings`: A dictionary containing safety ratings for the prompt feedback.
     - `text`: A string representing the concatenated text from all candidates.
+    - `function_calls`: Optional vector of function calls from the model.
     - `response_status`: An integer representing the HTTP response status code.
     - `finish_reason`: A string indicating the reason why the generation process was finished.
 """
@@ -243,87 +416,91 @@ function generate_content_stream(
     @async begin
         try
             # Use HTTP.open for true streaming
-            HTTP.open("POST", url; headers=headers, query=query, config.http_options...) do stream
+            HTTP.open(
+                "POST", url; headers=headers, query=query, config.http_options...
+            ) do stream
                 # Write the request body
                 write(stream, JSON3.write(body))
                 HTTP.closewrite(stream)
-                
+
                 # Start reading the response
                 response = HTTP.startread(stream)
-                
+
                 if response.status >= 400
                     error_msg = "HTTP Error $(response.status): $(String(response.body))"
                     throw(ErrorException(error_msg))
                 end
-                
+
                 # Process the SSE stream
                 buffer = IOBuffer()
                 seen_chunks = Set{String}()
-                
+
                 while !eof(stream)
                     chunk = readavailable(stream)
                     if isempty(chunk)
                         sleep(0.005)  # Small delay to prevent CPU spinning
                         continue
                     end
-                    
+
                     write(buffer, chunk)
                     seekstart(buffer)
-                    
+
                     while !eof(buffer)
                         line = readline(buffer; keep=true)
-                        
+
                         # Save partial line for next chunk
                         if !endswith(line, '\n')
                             partial = take!(buffer)
                             write(buffer, partial)
                             break
                         end
-                        
+
                         line = strip(line)
                         if !startswith(line, "data: ")
                             continue
                         end
-                        
+
                         # Extract data
                         data_str = SubString(line, 7)  # Remove "data: " prefix
                         if data_str == "[DONE]"
                             break
                         end
-                        
+
                         try
                             chunk_data = JSON3.read(data_str)
-                            
+
                             # Extract the text from the JSON structure
                             if !haskey(chunk_data, :candidates) ||
                                 isempty(chunk_data.candidates)
                                 continue
                             end
-                            
+
                             content = get(chunk_data.candidates[1], :content, nothing)
                             if content === nothing ||
                                 !haskey(content, :parts) ||
                                 isempty(content.parts)
                                 continue
                             end
-                            
+
                             # Get the text from the first part
                             current_text = get(content.parts[1], :text, "")
                             if current_text in seen_chunks
                                 continue  # Skip duplicate chunks entirely
                             end
-                            
+
                             # Add this chunk to our seen set
                             push!(seen_chunks, current_text)
-                            
+
                             # Create a parsed response
                             finish_reason = get(
                                 chunk_data.candidates[1], :finishReason, nothing
                             )
-                            
+
                             parsed = (
                                 candidates=chunk_data.candidates,
-                                safety_ratings=get(chunk_data, :safetyRatings, Dict{Any,Any}()),
+                                safety_ratings=get(
+                                    chunk_data, :safetyRatings, Dict{Any,Any}()
+                                ),
                                 text=current_text,
                                 status=response.status,
                                 finish_reason=finish_reason,
@@ -331,17 +508,17 @@ function generate_content_stream(
                                     chunk_data, :usageMetadata, Dict{Symbol,Any}()
                                 ),
                             )
-                            
+
                             # Send the unique chunk to the channel
                             put!(processed_channel, parsed)
-                            
+
                         catch e
                             @warn "Failed to parse chunk: $e"
                         end
                     end
                 end
             end
-            
+
         catch e
             put!(
                 processed_channel, (error=e, text="", finish_reason="ERROR", is_final=true)
@@ -356,6 +533,7 @@ function generate_content_stream(
     @async begin
         try
             full_text = ""
+            function_calls = []
 
             for chunk in processed_channel
                 if haskey(chunk, :error)
@@ -364,11 +542,37 @@ function generate_content_stream(
                 end
                 full_text = string(full_text, chunk.text)
 
+                # Extract function calls if present in the chunk
+                if haskey(chunk, :candidates) && !isempty(chunk.candidates)
+                    content = get(chunk.candidates[1], :content, nothing)
+                    if content !== nothing && haskey(content, :parts)
+                        for part in content.parts
+                            if haskey(part, :functionCall) && part.functionCall !== nothing
+                                fc = part.functionCall
+                                name = get(fc, :name, "")
+                                args_str = get(fc, :args, "{}")
+
+                                # Parse args
+                                args = if typeof(args_str) <: AbstractDict
+                                    Dict{String,Any}(
+                                        String(k) => v for (k, v) in pairs(args_str)
+                                    )
+                                else
+                                    JSON3.read(args_str, Dict{String,Any})
+                                end
+
+                                push!(function_calls, FunctionCall(name, args))
+                            end
+                        end
+                    end
+                end
+
                 combined_chunk = (
                     candidates=chunk.candidates,
                     safety_ratings=chunk.safety_ratings,
                     text=chunk.text,  # Just the new part
                     full_text=full_text,  # Full text so far
+                    function_calls=isempty(function_calls) ? nothing : function_calls,
                     status=chunk.status,
                     finish_reason=chunk.finish_reason,
                     usage_metadata=chunk.usage_metadata,
@@ -386,29 +590,6 @@ function generate_content_stream(
     end
 
     return result_channel
-end
-
-# Helper function for client usage
-function process_gemini_stream(stream)
-    full_response = ""
-    for chunk in stream
-        if haskey(chunk, :error)
-            error("Stream error: $(chunk.error)")
-        end
-
-        # Print just the new content
-        print(chunk.text)
-        flush(stdout)
-
-        # Add to accumulated response
-        full_response *= chunk.text
-
-        # Check if we're done
-        if chunk.finish_reason !== nothing
-            break
-        end
-    end
-    return full_response
 end
 
 function generate_content_stream(
