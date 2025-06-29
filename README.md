@@ -64,17 +64,6 @@ response = generate_content(model, prompt)
 println(response.text)
 ```
 
-Explicit API key:
-```julia
-api_key = ENV["GOOGLE_API_KEY"]
-response = generate_content(api_key, model, prompt)
-println(response.text)
-
-provider = GoogleProvider(; api_key)
-response = generate_content(api_key, model, prompt)
-println(response.text)
-```
-
 Gemini API config:
 ```julia
 config = GenerateContentConfig(; max_output_tokens=50)
