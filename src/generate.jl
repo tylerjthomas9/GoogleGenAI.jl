@@ -662,3 +662,144 @@ end
 function count_tokens(api_key::String, model_name::String, prompt::String)
     return count_tokens(GoogleProvider(; api_key), model_name, prompt)
 end
+
+"""
+    generate_content(model_name::String, conversation::Vector{Dict{Symbol,Any}}; config=GenerateContentConfig()) -> NamedTuple
+
+Generate content using automatic API key detection from environment variables.
+
+# Arguments
+- `model_name::String`: The model to use for content generation.
+- `conversation::Vector{Dict{Symbol,Any}}`: The conversation history.
+
+# Keyword Arguments
+- `config::GenerateContentConfig` (optional): Configuration for the generation request.
+
+# Returns
+- `NamedTuple`: Same as other generate_content functions.
+"""
+function generate_content(
+    model_name::String,
+    conversation::Vector{Dict{Symbol,Any}};
+    config=GenerateContentConfig(),
+)
+    return generate_content(GoogleProvider(), model_name, conversation; config)
+end
+
+"""
+    generate_content(model_name::String, prompt::String; image_path::String="", config=GenerateContentConfig()) -> NamedTuple
+
+Generate content using automatic API key detection from environment variables.
+
+# Arguments
+- `model_name::String`: The model to use for content generation.
+- `prompt::String`: The text prompt.
+
+# Keyword Arguments
+- `image_path::String` (optional): The path to the image file to include in the request.
+- `config::GenerateContentConfig` (optional): Configuration for the generation request.
+
+# Returns
+- `NamedTuple`: Same as other generate_content functions.
+"""
+function generate_content(
+    model_name::String,
+    prompt::String;
+    image_path::String="",
+    config=GenerateContentConfig(),
+)
+    return generate_content(GoogleProvider(), model_name, prompt; image_path, config)
+end
+
+"""
+    generate_content(model_name::String, contents::AbstractVector; image_path::String="", config=GenerateContentConfig()) -> NamedTuple
+
+Generate content using automatic API key detection from environment variables.
+
+# Arguments
+- `model_name::String`: The model to use for content generation.
+- `contents::AbstractVector`: The contents vector.
+
+# Keyword Arguments
+- `image_path::String` (optional): The path to the image file to include in the request.
+- `config::GenerateContentConfig` (optional): Configuration for the generation request.
+
+# Returns
+- `NamedTuple`: Same as other generate_content functions.
+"""
+function generate_content(
+    model_name::String,
+    contents::AbstractVector;
+    image_path::String="",
+    config=GenerateContentConfig(),
+)
+    return generate_content(GoogleProvider(), model_name, contents; image_path, config)
+end
+
+"""
+    generate_content_stream(model_name::String, conversation::Vector{Dict{Symbol,Any}}; image_path::String="", config=GenerateContentConfig()) -> Channel
+
+Generate streaming content using automatic API key detection from environment variables.
+
+# Arguments
+- `model_name::String`: The model to use for content generation.
+- `conversation::Vector{Dict{Symbol,Any}}`: The conversation history.
+
+# Keyword Arguments
+- `image_path::String` (optional): The path to the image file to include in the request.
+- `config::GenerateContentConfig` (optional): Configuration for the generation request.
+
+# Returns
+- `Channel`: Same as other generate_content_stream functions.
+"""
+function generate_content_stream(
+    model_name::String,
+    conversation::Vector{Dict{Symbol,Any}};
+    image_path::String="",
+    config=GenerateContentConfig(),
+)
+    return generate_content_stream(
+        GoogleProvider(), model_name, conversation; image_path, config
+    )
+end
+
+"""
+    generate_content_stream(model_name::String, prompt::String; image_path::String="", config=GenerateContentConfig()) -> Channel
+
+Generate streaming content using automatic API key detection from environment variables.
+
+# Arguments
+- `model_name::String`: The model to use for content generation.
+- `prompt::String`: The text prompt.
+
+# Keyword Arguments
+- `image_path::String` (optional): The path to the image file to include in the request.
+- `config::GenerateContentConfig` (optional): Configuration for the generation request.
+
+# Returns
+- `Channel`: Same as other generate_content_stream functions.
+"""
+function generate_content_stream(
+    model_name::String,
+    prompt::String;
+    image_path::String="",
+    config=GenerateContentConfig(),
+)
+    return generate_content_stream(GoogleProvider(), model_name, prompt; image_path, config)
+end
+
+"""
+    count_tokens(model_name::String, prompt::String) -> Int
+
+Count tokens using automatic API key detection from environment variables.
+
+# Arguments
+- `model_name::String`: The name of the model to use for token counting.  
+- `prompt::String`: The prompt to count tokens for.
+
+# Returns
+- `Int`: The total number of tokens.
+"""
+function count_tokens(model_name::String, prompt::String)
+    return count_tokens(GoogleProvider(), model_name, prompt)
+end

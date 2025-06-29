@@ -14,8 +14,14 @@ using Test
     @test formatted["parts"][1]["text"] == instruction
 end
 
-if haskey(ENV, "GOOGLE_API_KEY")
-    const secret_key = ENV["GOOGLE_API_KEY"]
+if haskey(ENV, "GOOGLE_API_KEY") || haskey(ENV, "GEMINI_API_KEY")
+    if haskey(ENV, "GOOGLE_API_KEY")
+        @info "Using GOOGLE_API_KEY"
+        const secret_key = ENV["GOOGLE_API_KEY"]
+    else
+        @info "Using GEMINI_API_KEY"
+        const secret_key = ENV["GEMINI_API_KEY"]
+    end
     http_options = (retries=2,)
     safety_settings = [
         SafetySetting(; category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
@@ -165,7 +171,7 @@ if haskey(ENV, "GOOGLE_API_KEY")
     include("test_structured.jl")
     include("test_functions.jl")
 else
-    @info "Skipping GoogleGenAI.jl tests because GOOGLE_API_KEY is not set"
+    @info "Skipping GoogleGenAI.jl tests because GOOGLE_API_KEY or GEMINI_API_KEY is not set"
 end
 
 Aqua.test_all(GoogleGenAI)

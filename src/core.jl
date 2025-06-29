@@ -16,16 +16,15 @@ struct GoogleProvider <: AbstractGoogleProvider
     api_version::String
 end
 
-function GoogleProvider(
-    ;
-    api_key::String = "",
-    base_url::String = "https://generativelanguage.googleapis.com",
-    api_version::String = "v1beta",
+function GoogleProvider(;
+    api_key::String="",
+    base_url::String="https://generativelanguage.googleapis.com",
+    api_version::String="v1beta",
 )
     if isempty(api_key)
         google_key = get(ENV, "GOOGLE_API_KEY", "")
         gemini_key = get(ENV, "GEMINI_API_KEY", "")
-        
+
         if !isempty(google_key) && !isempty(gemini_key)
             @warn "Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY."
             api_key = google_key
@@ -34,7 +33,9 @@ function GoogleProvider(
         elseif !isempty(gemini_key)
             api_key = gemini_key
         else
-            error("API key not provided and neither GOOGLE_API_KEY nor GEMINI_API_KEY environment variables are set.")
+            error(
+                "API key not provided and neither GOOGLE_API_KEY nor GEMINI_API_KEY environment variables are set.",
+            )
         end
     end
 
@@ -246,13 +247,21 @@ end
 """
     ThinkingConfig
 
+Configuration for thinking features in Gemini models.
+
+The Gemini 2.5 series models use an internal "thinking process" during response generation. 
+This process contributes to their improved reasoning capabilities and helps them use multi-step 
+planning to solve complex tasks.
+
+For more information, see: https://ai.google.dev/gemini-api/docs/thinking#set-budget
+
 # Fields
 - `include_thoughts::Bool`: Indicates whether to include thoughts in the response. If true, thoughts are returned only if the model supports thought and thoughts are available.
-- `thinking_budget::Int`: Indicates the thinking budget in tokens.
+- `thinking_budget::Int`: Indicates the thinking budget in tokens. This limits the amount of internal thinking the model can perform.
 """
 Base.@kwdef struct ThinkingConfig
-    include_thoughts::Bool
-    thinking_budget::Int
+    include_thoughts::Bool = false
+    thinking_budget::Int = -1
 end
 
 """
@@ -443,6 +452,7 @@ end
 """
     list_models(provider::AbstractGoogleProvider) -> Vector{Dict}
     list_models(api_key::String) -> Vector{Dict}
+    list_models() -> Vector{Dict}
 
 Retrieve a list of available models along with their details from the Google AI API.
 
@@ -479,3 +489,4 @@ function list_models(provider::AbstractGoogleProvider)
 end
 
 list_models(api_key::String) = list_models(GoogleProvider(; api_key))
+list_models() = list_models(GoogleProvider())

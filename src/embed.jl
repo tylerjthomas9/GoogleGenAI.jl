@@ -1,4 +1,3 @@
-
 """
     embed_content(provider::AbstractGoogleProvider, model_name::String, prompt::String; http_kwargs=NamedTuple()) -> NamedTuple
     embed_content(api_key::String, model_name::String, prompt::String; http_kwargs=NamedTuple()) -> NamedTuple
@@ -76,4 +75,44 @@ function embed_content(
     api_key::String, model_name::String, prompts::Vector{String}; http_kwargs=NamedTuple()
 )
     return embed_content(GoogleProvider(; api_key), model_name, prompts; http_kwargs...)
+end
+
+"""
+    embed_content(model_name::String, prompt::String; http_kwargs=NamedTuple()) -> NamedTuple
+
+Generate an embedding for the given prompt text using automatic API key detection from environment variables.
+
+# Arguments
+- `model_name::String`: The name of the model to use for generating content.
+- `prompt::String`: The prompt text to generate embeddings for.
+
+# HTTP Kwargs
+- All keyword arguments supported by the `HTTP.request` function.
+
+# Returns
+- `NamedTuple`: A named tuple containing the embedding values and response status.
+"""
+function embed_content(model_name::String, prompt::String; http_kwargs=NamedTuple())
+    return embed_content(GoogleProvider(), model_name, prompt; http_kwargs...)
+end
+
+"""
+    embed_content(model_name::String, prompts::Vector{String}; http_kwargs=NamedTuple()) -> NamedTuple
+
+Generate embeddings for multiple prompts using automatic API key detection from environment variables.
+
+# Arguments
+- `model_name::String`: The name of the model to use for generating content.
+- `prompts::Vector{String}`: Vector of prompt texts to generate embeddings for.
+
+# HTTP Kwargs
+- All keyword arguments supported by the `HTTP.request` function.
+
+# Returns
+- `NamedTuple`: A named tuple containing the embedding values and response status.
+"""
+function embed_content(
+    model_name::String, prompts::Vector{String}; http_kwargs=NamedTuple()
+)
+    return embed_content(GoogleProvider(), model_name, prompts; http_kwargs...)
 end

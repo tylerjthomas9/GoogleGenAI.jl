@@ -1,4 +1,3 @@
-
 """
     create_cached_content(
         provider::AbstractGoogleProvider,
@@ -76,6 +75,18 @@ function create_cached_content(
     )
 end
 
+function create_cached_content(
+    model_name::String,
+    content::Union{String,Vector{Dict{Symbol,Any}},Dict{String,Any}};
+    ttl::String="300s",
+    system_instruction::String="",
+    http_kwargs=NamedTuple(),
+)
+    return create_cached_content(
+        GoogleProvider(), model_name, content; ttl, system_instruction, http_kwargs
+    )
+end
+
 """
     list_cached_content(provider::AbstractGoogleProvider; http_kwargs=NamedTuple()) -> JSON3.Array
     list_cached_content(api_key::String; http_kwargs=NamedTuple()) -> JSON3.Array
@@ -96,12 +107,18 @@ function list_cached_content(provider::AbstractGoogleProvider; http_kwargs=Named
     response = _request(provider, endpoint, :GET, Dict(); http_kwargs...)
     parsed = JSON3.read(response.body)
 
-    return parsed[:cachedContents]
+    if haskey(parsed, :cachedContents)
+        return parsed[:cachedContents]
+    else
+        return nothing
+    end
 end
 
 function list_cached_content(api_key::String; http_kwargs=NamedTuple())
     return list_cached_content(GoogleProvider(; api_key); http_kwargs...)
 end
+
+list_cached_content() = list_cached_content(GoogleProvider())
 
 """
     get_cached_content(provider::AbstractGoogleProvider, cache_name::String; http_kwargs=NamedTuple()) -> JSON3.Object
@@ -129,6 +146,10 @@ end
 
 function get_cached_content(api_key::String, cache_name::String; http_kwargs=NamedTuple())
     return get_cached_content(GoogleProvider(; api_key), cache_name; http_kwargs...)
+end
+
+function get_cached_content(cache_name::String; http_kwargs=NamedTuple())
+    return get_cached_content(GoogleProvider(), cache_name; http_kwargs...)
 end
 
 """
@@ -165,6 +186,10 @@ function update_cached_content(
     return update_cached_content(GoogleProvider(; api_key), cache_name, ttl; http_kwargs...)
 end
 
+function update_cached_content(cache_name::String, ttl::String; http_kwargs=NamedTuple())
+    return update_cached_content(GoogleProvider(), cache_name, ttl; http_kwargs...)
+end
+
 """
     delete_cached_content(provider::AbstractGoogleProvider, cache_name::String; http_kwargs=NamedTuple()) -> Int
     delete_cached_content(api_key::String, cache_name::String; http_kwargs=NamedTuple()) -> Int
@@ -192,4 +217,8 @@ function delete_cached_content(
     api_key::String, cache_name::String; http_kwargs=NamedTuple()
 )
     return delete_cached_content(GoogleProvider(; api_key), cache_name; http_kwargs...)
+end
+
+function delete_cached_content(cache_name::String; http_kwargs=NamedTuple())
+    return delete_cached_content(GoogleProvider(), cache_name; http_kwargs...)
 end
