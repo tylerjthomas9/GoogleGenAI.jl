@@ -1,23 +1,44 @@
 abstract type AbstractGoogleProvider end
 
 """
-    Base.@kwdef struct GoogleProvider <: AbstractGoogleProvider
-        api_key::String = ""
-        base_url::String = "https://generativelanguage.googleapis.com"
-        api_version::String = "v1beta"
+    GoogleProvider(; api_key::String="", base_url::String="https://generativelanguage.googleapis.com", api_version::String="v1beta")
+
+A configuration object used to set up and authenticate requests to the Google Generative Language API.
+
+# Fields
+- `api_key::String`: Your Google API key. If not provided, the constructor will automatically check for `GOOGLE_API_KEY` or `GEMINI_API_KEY` environment variables (with `GOOGLE_API_KEY` taking precedence if both are set).
+- `base_url::String`: The base URL for the Google Generative Language API. The default is set to `"https://generativelanguage.googleapis.com"`.
+- `api_version::String`: The version of the API you wish to access. The default is set to `"v1beta"`.
+"""
+struct GoogleProvider <: AbstractGoogleProvider
+    api_key::String
+    base_url::String
+    api_version::String
+end
+
+function GoogleProvider(
+    ;
+    api_key::String = "",
+    base_url::String = "https://generativelanguage.googleapis.com",
+    api_version::String = "v1beta",
+)
+    if isempty(api_key)
+        google_key = get(ENV, "GOOGLE_API_KEY", "")
+        gemini_key = get(ENV, "GEMINI_API_KEY", "")
+        
+        if !isempty(google_key) && !isempty(gemini_key)
+            @warn "Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY."
+            api_key = google_key
+        elseif !isempty(google_key)
+            api_key = google_key
+        elseif !isempty(gemini_key)
+            api_key = gemini_key
+        else
+            error("API key not provided and neither GOOGLE_API_KEY nor GEMINI_API_KEY environment variables are set.")
+        end
     end
 
-    A configuration object used to set up and authenticate requests to the Google Generative Language API.
-
-    # Fields
-    - `api_key::String`: Your Google API key. 
-    - `base_url::String`: The base URL for the Google Generative Language API. The default is set to `"https://generativelanguage.googleapis.com"`.
-    - `api_version::String`: The version of the API you wish to access. The default is set to `"v1beta"`.
-"""
-Base.@kwdef struct GoogleProvider <: AbstractGoogleProvider
-    api_key::String = ""
-    base_url::String = "https://generativelanguage.googleapis.com"
-    api_version::String = "v1beta"
+    return GoogleProvider(api_key, base_url, api_version)
 end
 
 function Base.show(io::IO, ::MIME"text/plain", provider::GoogleProvider)
