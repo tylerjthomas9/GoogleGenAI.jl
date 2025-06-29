@@ -1,4 +1,3 @@
-
 """
     upload_file(provider::AbstractGoogleProvider, file_path::String; display_name::String="", mime_type::String="application/octet-stream", http_kwargs=NamedTuple()) -> JSON3.Object
 
@@ -58,7 +57,6 @@ function upload_file(
     return JSON3.read(String(response.body))[:file]
 end
 
-# Overload for direct API key usage (unchanged)
 function upload_file(
     api_key::String,
     file_path::String;
@@ -68,6 +66,21 @@ function upload_file(
 )
     return upload_file(
         GoogleProvider(; api_key),
+        file_path;
+        display_name=display_name,
+        mime_type=mime_type,
+        http_kwargs=http_kwargs,
+    )
+end
+
+function upload_file(
+    file_path::String;
+    display_name::String="",
+    mime_type::String="",
+    http_kwargs=NamedTuple(),
+)
+    return upload_file(
+        GoogleProvider(),
         file_path;
         display_name=display_name,
         mime_type=mime_type,
@@ -89,6 +102,10 @@ end
 
 function get_file(api_key::String, file_name::String; http_kwargs=NamedTuple())
     return get_file(GoogleProvider(; api_key), file_name; http_kwargs=http_kwargs)
+end
+
+function get_file(file_name::String; http_kwargs=NamedTuple())
+    return get_file(GoogleProvider(), file_name; http_kwargs=http_kwargs)
 end
 
 """
@@ -127,6 +144,15 @@ function list_files(
     )
 end
 
+function list_files(; page_size::Int=10, page_token::String="", http_kwargs=NamedTuple())
+    return list_files(
+        GoogleProvider();
+        page_size=page_size,
+        page_token=page_token,
+        http_kwargs=http_kwargs,
+    )
+end
+
 """
     delete_file(provider::AbstractGoogleProvider, file_name::String; http_kwargs=NamedTuple()) -> Int
 
@@ -141,4 +167,8 @@ end
 
 function delete_file(api_key::String, file_name::String; http_kwargs=NamedTuple())
     return delete_file(GoogleProvider(; api_key), file_name; http_kwargs=http_kwargs)
+end
+
+function delete_file(file_name::String; http_kwargs=NamedTuple())
+    return delete_file(GoogleProvider(), file_name; http_kwargs=http_kwargs)
 end

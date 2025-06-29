@@ -1,23 +1,33 @@
 abstract type AbstractGoogleProvider end
 
 """
-    Base.@kwdef struct GoogleProvider <: AbstractGoogleProvider
-        api_key::String = ""
-        base_url::String = "https://generativelanguage.googleapis.com"
-        api_version::String = "v1beta"
+    GoogleProvider(; api_key::String="", base_url::String="https://generativelanguage.googleapis.com", api_version::String="v1beta")
+
+A configuration object used to set up and authenticate requests to the Google Generative Language API.
+
+# Fields
+- `api_key::String`: Your Google API key. If not provided, the constructor will automatically check for `GOOGLE_API_KEY` or `GEMINI_API_KEY` environment variables (with `GOOGLE_API_KEY` taking precedence if both are set).
+- `base_url::String`: The base URL for the Google Generative Language API. The default is set to `"https://generativelanguage.googleapis.com"`.
+- `api_version::String`: The version of the API you wish to access. The default is set to `"v1beta"`.
+"""
+struct GoogleProvider <: AbstractGoogleProvider
+    api_key::String
+    base_url::String
+    api_version::String
+end
+
+function GoogleProvider(;
+    api_key::String=get(ENV, "GOOGLE_API_KEY", get(ENV, "GEMINI_API_KEY", "")),
+    base_url::String="https://generativelanguage.googleapis.com",
+    api_version::String="v1beta",
+)
+    if isempty(api_key)
+        error(
+            "API key not provided and not found in GOOGLE_API_KEY or GEMINI_API_KEY environment variables.",
+        )
     end
 
-    A configuration object used to set up and authenticate requests to the Google Generative Language API.
-
-    # Fields
-    - `api_key::String`: Your Google API key. 
-    - `base_url::String`: The base URL for the Google Generative Language API. The default is set to `"https://generativelanguage.googleapis.com"`.
-    - `api_version::String`: The version of the API you wish to access. The default is set to `"v1beta"`.
-"""
-Base.@kwdef struct GoogleProvider <: AbstractGoogleProvider
-    api_key::String = ""
-    base_url::String = "https://generativelanguage.googleapis.com"
-    api_version::String = "v1beta"
+    return GoogleProvider(api_key, base_url, api_version)
 end
 
 function Base.show(io::IO, ::MIME"text/plain", provider::GoogleProvider)
@@ -225,13 +235,21 @@ end
 """
     ThinkingConfig
 
+Configuration for thinking features in Gemini models.
+
+The Gemini 2.5 series models use an internal "thinking process" during response generation. 
+This process contributes to their improved reasoning capabilities and helps them use multi-step 
+planning to solve complex tasks.
+
+For more information, see: https://ai.google.dev/gemini-api/docs/thinking#set-budget
+
 # Fields
 - `include_thoughts::Bool`: Indicates whether to include thoughts in the response. If true, thoughts are returned only if the model supports thought and thoughts are available.
-- `thinking_budget::Int`: Indicates the thinking budget in tokens.
+- `thinking_budget::Int`: Indicates the thinking budget in tokens. This limits the amount of internal thinking the model can perform.
 """
 Base.@kwdef struct ThinkingConfig
-    include_thoughts::Bool
-    thinking_budget::Int
+    include_thoughts::Bool = false
+    thinking_budget::Int = -1
 end
 
 """
@@ -422,6 +440,7 @@ end
 """
     list_models(provider::AbstractGoogleProvider) -> Vector{Dict}
     list_models(api_key::String) -> Vector{Dict}
+    list_models() -> Vector{Dict}
 
 Retrieve a list of available models along with their details from the Google AI API.
 
@@ -458,3 +477,4 @@ function list_models(provider::AbstractGoogleProvider)
 end
 
 list_models(api_key::String) = list_models(GoogleProvider(; api_key))
+list_models() = list_models(GoogleProvider())
