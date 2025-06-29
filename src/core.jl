@@ -17,26 +17,14 @@ struct GoogleProvider <: AbstractGoogleProvider
 end
 
 function GoogleProvider(;
-    api_key::String="",
+    api_key::String=get(ENV, "GOOGLE_API_KEY", get(ENV, "GEMINI_API_KEY", "")),
     base_url::String="https://generativelanguage.googleapis.com",
     api_version::String="v1beta",
 )
     if isempty(api_key)
-        google_key = get(ENV, "GOOGLE_API_KEY", "")
-        gemini_key = get(ENV, "GEMINI_API_KEY", "")
-
-        if !isempty(google_key) && !isempty(gemini_key)
-            @warn "Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY."
-            api_key = google_key
-        elseif !isempty(google_key)
-            api_key = google_key
-        elseif !isempty(gemini_key)
-            api_key = gemini_key
-        else
-            error(
-                "API key not provided and neither GOOGLE_API_KEY nor GEMINI_API_KEY environment variables are set.",
-            )
-        end
+        error(
+            "API key not provided and not found in GOOGLE_API_KEY or GEMINI_API_KEY environment variables.",
+        )
     end
 
     return GoogleProvider(api_key, base_url, api_version)
