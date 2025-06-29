@@ -110,7 +110,7 @@ function list_cached_content(provider::AbstractGoogleProvider; http_kwargs=Named
     if haskey(parsed, :cachedContents)
         return parsed[:cachedContents]
     else
-        return nothing
+        return JSON3.Array[]
     end
 end
 
