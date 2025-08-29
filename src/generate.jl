@@ -224,6 +224,37 @@ function _convert_contents(contents::AbstractVector)
     return parts
 end
 
+# DRY helpers for image handling
+_infer_mime_from_ext(path::String) = begin
+    ext = lowercase(splitext(path)[2])
+    ext in [".jpg", ".jpeg"] ? "image/jpeg" :
+    ext == ".png" ? "image/png" :
+    throw("Unkown image file format $path")
+end
+
+_image_inline_parts(; image_path::String="", images::AbstractVector=NamedTuple[]) = begin
+    parts = Vector{Dict{String,Any}}()
+
+    # Handle legacy single image_path
+    if !isempty(image_path)
+        mime = _infer_mime_from_ext(image_path)
+        push!(parts, Dict("inline_data" => Dict("mime_type" => mime, "data" => open(base64encode, image_path))))
+    end
+
+    # Handle new images vector with named tuples
+    for img in images
+        if haskey(img, :path)
+            mime = haskey(img, :mime_type) ? img.mime_type : _infer_mime_from_ext(img.path)
+            push!(parts, Dict("inline_data" => Dict("mime_type" => mime, "data" => open(base64encode, img.path))))
+        elseif haskey(img, :data)
+            mime = haskey(img, :mime_type) ? img.mime_type : "image/png"
+            push!(parts, Dict("inline_data" => Dict("mime_type" => mime, "data" => img.data)))
+        end
+    end
+
+    parts
+end
+
 """
     generate_content(provider::AbstractGoogleProvider, model_name::String, prompt::String; image_path::String, config=GenerateContentConfig()) -> NamedTuple
     generate_content(api_key::String, model_name::String, prompt::String; image_path::String, config=GenerateContentConfig()) -> NamedTuple
@@ -278,33 +309,12 @@ function generate_content(
     model_name::String,
     prompt::String;
     image_path::String="",
+    images::AbstractVector=NamedTuple[],
     config=GenerateContentConfig(),
 )
-    if isempty(image_path)
-        conversation = [Dict(:role => "user", :parts => [Dict("text" => prompt)])]
-    else
-        ext = lowercase(splitext(image_path)[2])
-        if ext in [".jpg", ".jpeg"]
-            mime_type = "image/jpeg"
-        elseif ext == ".png"
-            mime_type = "image/png"
-        else
-            throw("Unkown image file format $image_path")
-        end
-        image_data = open(base64encode, image_path)
-        conversation = [
-            Dict(
-                :role => "user",
-                :parts => [
-                    Dict("text" => prompt),
-                    Dict(
-                        "inline_data" =>
-                            Dict("mime_type" => mime_type, "data" => image_data),
-                    ),
-                ],
-            ),
-        ]
-    end
+    parts = Dict{String,Any}[Dict("text" => prompt)]
+    append!(parts, _image_inline_parts(; image_path, images))
+    conversation = [Dict(:role => "user", :parts => parts)]
     return generate_content(provider, model_name, conversation; config)
 end
 
@@ -313,10 +323,12 @@ function generate_content(
     model_name::String,
     prompt::String;
     image_path::String="",
+    images::AbstractVector=NamedTuple[],
     config=GenerateContentConfig(),
 )
     return generate_content(
-        GoogleProvider(; api_key), model_name, prompt; image_path, config
+        GoogleProvider(; api_key), model_name, prompt;
+        image_path, images, config
     )
 end
 
@@ -325,34 +337,12 @@ function generate_content(
     model_name::String,
     contents::AbstractVector;
     image_path::String="",
+    images::AbstractVector=NamedTuple[],
     config=GenerateContentConfig(),
 )
     parts = _convert_contents(contents)
-    if isempty(image_path)
-        conversation = [Dict(:role => "user", :parts => parts)]
-    else
-        ext = lowercase(splitext(image_path)[2])
-        if ext in [".jpg", ".jpeg"]
-            mime_type = "image/jpeg"
-        elseif ext == ".png"
-            mime_type = "image/png"
-        else
-            throw("Unkown image file format $image_path")
-        end
-        image_data = open(base64encode, image_path)
-        conversation = [
-            Dict(
-                :role => "user",
-                :parts => [
-                    parts...,
-                    Dict(
-                        "inline_data" =>
-                            Dict("mime_type" => mime_type, "data" => image_data),
-                    ),
-                ],
-            ),
-        ]
-    end
+    append!(parts, _image_inline_parts(; image_path, images))
+    conversation = [Dict(:role => "user", :parts => parts)]
     return generate_content(provider, model_name, conversation; config)
 end
 
@@ -361,9 +351,13 @@ function generate_content(
     model_name::String,
     contents::AbstractVector;
     image_path::String="",
+    images::AbstractVector=NamedTuple[],
     config=GenerateContentConfig(),
 )
-    return generate_content(GoogleProvider(; api_key), model_name, contents; config)
+    return generate_content(
+        GoogleProvider(; api_key), model_name, contents;
+        image_path, images, config
+    )
 end
 
 """
@@ -396,7 +390,6 @@ function generate_content_stream(
     provider::AbstractGoogleProvider,
     model_name::String,
     conversation::Vector{Dict{Symbol,Any}};
-    image_path::String="",
     config::GenerateContentConfig=GenerateContentConfig(),
 )
     endpoint = "models/$model_name:streamGenerateContent"
@@ -596,11 +589,10 @@ function generate_content_stream(
     api_key::String,
     model_name::String,
     conversation::Vector{Dict{Symbol,Any}};
-    image_path::String="",
     config=GenerateContentConfig(),
 )
     return generate_content_stream(
-        GoogleProvider(; api_key), model_name, conversation; image_path, config
+        GoogleProvider(; api_key), model_name, conversation; config
     )
 end
 
@@ -608,14 +600,12 @@ function generate_content_stream(
     provider::AbstractGoogleProvider,
     model_name::String,
     prompt::String;
-    image_path::String="",
     config=GenerateContentConfig(),
 )
     return generate_content_stream(
         provider,
         model_name,
         [Dict(:role => "user", :parts => [Dict("text" => prompt)])];
-        image_path,
         config,
     )
 end
@@ -624,14 +614,12 @@ function generate_content_stream(
     api_key::String,
     model_name::String,
     prompt::String;
-    image_path::String="",
     config=GenerateContentConfig(),
 )
     return generate_content_stream(
         GoogleProvider(; api_key),
         model_name,
         [Dict(:role => "user", :parts => [Dict("text" => prompt)])];
-        image_path,
         config,
     )
 end
@@ -706,9 +694,13 @@ function generate_content(
     model_name::String,
     prompt::String;
     image_path::String="",
+    images::AbstractVector=NamedTuple[],
     config=GenerateContentConfig(),
 )
-    return generate_content(GoogleProvider(), model_name, prompt; image_path, config)
+    return generate_content(
+        GoogleProvider(), model_name, prompt;
+        image_path, images, config
+    )
 end
 
 """
@@ -731,9 +723,13 @@ function generate_content(
     model_name::String,
     contents::AbstractVector;
     image_path::String="",
+    images::AbstractVector=NamedTuple[],
     config=GenerateContentConfig(),
 )
-    return generate_content(GoogleProvider(), model_name, contents; image_path, config)
+    return generate_content(
+        GoogleProvider(), model_name, contents;
+        image_path, images, config
+    )
 end
 
 """
@@ -755,11 +751,10 @@ Generate streaming content using automatic API key detection from environment va
 function generate_content_stream(
     model_name::String,
     conversation::Vector{Dict{Symbol,Any}};
-    image_path::String="",
     config=GenerateContentConfig(),
 )
     return generate_content_stream(
-        GoogleProvider(), model_name, conversation; image_path, config
+        GoogleProvider(), model_name, conversation; config
     )
 end
 
@@ -782,10 +777,9 @@ Generate streaming content using automatic API key detection from environment va
 function generate_content_stream(
     model_name::String,
     prompt::String;
-    image_path::String="",
     config=GenerateContentConfig(),
 )
-    return generate_content_stream(GoogleProvider(), model_name, prompt; image_path, config)
+    return generate_content_stream(GoogleProvider(), model_name, prompt; config)
 end
 
 """
