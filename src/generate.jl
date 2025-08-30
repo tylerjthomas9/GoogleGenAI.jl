@@ -751,10 +751,11 @@ Generate streaming content using automatic API key detection from environment va
 function generate_content_stream(
     model_name::String,
     conversation::Vector{Dict{Symbol,Any}};
+    image_path::String="",
     config=GenerateContentConfig(),
 )
     return generate_content_stream(
-        GoogleProvider(), model_name, conversation; config
+        GoogleProvider(), model_name, conversation; image_path, config
     )
 end
 
@@ -777,9 +778,10 @@ Generate streaming content using automatic API key detection from environment va
 function generate_content_stream(
     model_name::String,
     prompt::String;
+    image_path::String="",
     config=GenerateContentConfig(),
 )
-    return generate_content_stream(GoogleProvider(), model_name, prompt; config)
+    return generate_content_stream(GoogleProvider(), model_name, prompt; image_path, config)
 end
 
 """
