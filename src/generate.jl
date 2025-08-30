@@ -465,14 +465,14 @@ function generate_content_stream(
 
                             # Extract the text from the JSON structure
                             if !haskey(chunk_data, :candidates) ||
-                                isempty(chunk_data.candidates)
+                               isempty(chunk_data.candidates)
                                 continue
                             end
 
                             content = get(chunk_data.candidates[1], :content, nothing)
                             if content === nothing ||
-                                !haskey(content, :parts) ||
-                                isempty(content.parts)
+                               !haskey(content, :parts) ||
+                               isempty(content.parts)
                                 continue
                             end
 
