@@ -390,6 +390,7 @@ function generate_content_stream(
     provider::AbstractGoogleProvider,
     model_name::String,
     conversation::Vector{Dict{Symbol,Any}};
+    image_path::String,
     config::GenerateContentConfig=GenerateContentConfig(),
 )
     endpoint = "models/$model_name:streamGenerateContent"
@@ -589,10 +590,11 @@ function generate_content_stream(
     api_key::String,
     model_name::String,
     conversation::Vector{Dict{Symbol,Any}};
+    image_path::String,
     config=GenerateContentConfig(),
 )
     return generate_content_stream(
-        GoogleProvider(; api_key), model_name, conversation; config
+        GoogleProvider(; api_key), model_name, conversation; image_path, config
     )
 end
 
@@ -600,12 +602,14 @@ function generate_content_stream(
     provider::AbstractGoogleProvider,
     model_name::String,
     prompt::String;
+    image_path::String,
     config=GenerateContentConfig(),
 )
     return generate_content_stream(
         provider,
         model_name,
         [Dict(:role => "user", :parts => [Dict("text" => prompt)])];
+        image_path,
         config,
     )
 end
@@ -614,12 +618,14 @@ function generate_content_stream(
     api_key::String,
     model_name::String,
     prompt::String;
+    image_path::String,
     config=GenerateContentConfig(),
 )
     return generate_content_stream(
         GoogleProvider(; api_key),
         model_name,
         [Dict(:role => "user", :parts => [Dict("text" => prompt)])];
+        image_path,
         config,
     )
 end
