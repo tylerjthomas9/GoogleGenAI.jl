@@ -225,30 +225,48 @@ function _convert_contents(contents::AbstractVector)
 end
 
 # DRY helpers for image handling
-_infer_mime_from_ext(path::String) = begin
+function _infer_mime_from_ext(path::String)
     ext = lowercase(splitext(path)[2])
-    ext in [".jpg", ".jpeg"] ? "image/jpeg" :
-    ext == ".png" ? "image/png" :
-    throw("Unkown image file format $path")
+    if ext in [".jpg", ".jpeg"]
+        "image/jpeg"
+    elseif ext == ".png"
+        "image/png"
+    else
+        throw("Unkown image file format $path")
+    end
 end
 
-_image_inline_parts(; image_path::String="", images::AbstractVector=NamedTuple[]) = begin
+function _image_inline_parts(; image_path::String="", images::AbstractVector=NamedTuple[])
     parts = Vector{Dict{String,Any}}()
 
     # Handle legacy single image_path
     if !isempty(image_path)
         mime = _infer_mime_from_ext(image_path)
-        push!(parts, Dict("inline_data" => Dict("mime_type" => mime, "data" => open(base64encode, image_path))))
+        push!(
+            parts,
+            Dict(
+                "inline_data" =>
+                    Dict("mime_type" => mime, "data" => open(base64encode, image_path)),
+            ),
+        )
     end
 
     # Handle new images vector with named tuples
     for img in images
         if haskey(img, :path)
             mime = haskey(img, :mime_type) ? img.mime_type : _infer_mime_from_ext(img.path)
-            push!(parts, Dict("inline_data" => Dict("mime_type" => mime, "data" => open(base64encode, img.path))))
+            push!(
+                parts,
+                Dict(
+                    "inline_data" =>
+                        Dict("mime_type" => mime, "data" => open(base64encode, img.path)),
+                ),
+            )
         elseif haskey(img, :data)
             mime = haskey(img, :mime_type) ? img.mime_type : "image/png"
-            push!(parts, Dict("inline_data" => Dict("mime_type" => mime, "data" => img.data)))
+            push!(
+                parts, Dict("inline_data" => Dict("mime_type" => mime, "data" => img.data))
+            )
         end
     end
 
@@ -271,7 +289,8 @@ Generate content based on a combination of text prompt and an image (optional).
 - `prompt::String`: The text prompt to accompany the image.
 
 # Keyword Arguments
-- `image_path::String` (optional): The path to the image file to include in the request.
+- `image_path::String` (optional, legacy): The path to the image file to include in the request.
+- `images::AbstractVector` (optional): The images to include in the request. Supports NamedTuples with `path` and `mime_type` keys.
 - `config::GenerateContentConfig` (optional): Configuration for the generation request.
 
 # Returns
@@ -327,8 +346,7 @@ function generate_content(
     config=GenerateContentConfig(),
 )
     return generate_content(
-        GoogleProvider(; api_key), model_name, prompt;
-        image_path, images, config
+        GoogleProvider(; api_key), model_name, prompt; image_path, images, config
     )
 end
 
@@ -355,8 +373,7 @@ function generate_content(
     config=GenerateContentConfig(),
 )
     return generate_content(
-        GoogleProvider(; api_key), model_name, contents;
-        image_path, images, config
+        GoogleProvider(; api_key), model_name, contents; image_path, images, config
     )
 end
 
@@ -390,7 +407,6 @@ function generate_content_stream(
     provider::AbstractGoogleProvider,
     model_name::String,
     conversation::Vector{Dict{Symbol,Any}};
-    image_path::String,
     config::GenerateContentConfig=GenerateContentConfig(),
 )
     endpoint = "models/$model_name:streamGenerateContent"
@@ -465,14 +481,14 @@ function generate_content_stream(
 
                             # Extract the text from the JSON structure
                             if !haskey(chunk_data, :candidates) ||
-                               isempty(chunk_data.candidates)
+                                isempty(chunk_data.candidates)
                                 continue
                             end
 
                             content = get(chunk_data.candidates[1], :content, nothing)
                             if content === nothing ||
-                               !haskey(content, :parts) ||
-                               isempty(content.parts)
+                                !haskey(content, :parts) ||
+                                isempty(content.parts)
                                 continue
                             end
 
@@ -590,11 +606,10 @@ function generate_content_stream(
     api_key::String,
     model_name::String,
     conversation::Vector{Dict{Symbol,Any}};
-    image_path::String,
     config=GenerateContentConfig(),
 )
     return generate_content_stream(
-        GoogleProvider(; api_key), model_name, conversation; image_path, config
+        GoogleProvider(; api_key), model_name, conversation; config
     )
 end
 
@@ -602,31 +617,26 @@ function generate_content_stream(
     provider::AbstractGoogleProvider,
     model_name::String,
     prompt::String;
-    image_path::String,
+    image_path::String="",
+    images::AbstractVector=NamedTuple[],
     config=GenerateContentConfig(),
 )
-    return generate_content_stream(
-        provider,
-        model_name,
-        [Dict(:role => "user", :parts => [Dict("text" => prompt)])];
-        image_path,
-        config,
-    )
+    parts = Dict{String,Any}[Dict("text" => prompt)]
+    append!(parts, _image_inline_parts(; image_path, images))
+    conversation = [Dict(:role => "user", :parts => parts)]
+    return generate_content_stream(provider, model_name, conversation; config=config)
 end
 
 function generate_content_stream(
     api_key::String,
     model_name::String,
     prompt::String;
-    image_path::String,
+    image_path::String="",
+    images::AbstractVector=NamedTuple[],
     config=GenerateContentConfig(),
 )
     return generate_content_stream(
-        GoogleProvider(; api_key),
-        model_name,
-        [Dict(:role => "user", :parts => [Dict("text" => prompt)])];
-        image_path,
-        config,
+        GoogleProvider(; api_key), model_name, prompt; image_path, images, config
     )
 end
 
@@ -690,7 +700,8 @@ Generate content using automatic API key detection from environment variables.
 - `prompt::String`: The text prompt.
 
 # Keyword Arguments
-- `image_path::String` (optional): The path to the image file to include in the request.
+- `image_path::String` (optional, legacy): The path to the image file to include in the request.
+- `images::AbstractVector` (optional): The images to include in the request. Supports NamedTuples with `path` and `mime_type` keys.
 - `config::GenerateContentConfig` (optional): Configuration for the generation request.
 
 # Returns
@@ -704,8 +715,7 @@ function generate_content(
     config=GenerateContentConfig(),
 )
     return generate_content(
-        GoogleProvider(), model_name, prompt;
-        image_path, images, config
+        GoogleProvider(), model_name, prompt; image_path, images, config
     )
 end
 
@@ -719,7 +729,8 @@ Generate content using automatic API key detection from environment variables.
 - `contents::AbstractVector`: The contents vector.
 
 # Keyword Arguments
-- `image_path::String` (optional): The path to the image file to include in the request.
+- `image_path::String` (optional, legacy): The path to the image file to include in the request.
+- `images::AbstractVector` (optional): The images to include in the request. Supports NamedTuples with `path` and `mime_type` keys.
 - `config::GenerateContentConfig` (optional): Configuration for the generation request.
 
 # Returns
@@ -733,8 +744,7 @@ function generate_content(
     config=GenerateContentConfig(),
 )
     return generate_content(
-        GoogleProvider(), model_name, contents;
-        image_path, images, config
+        GoogleProvider(), model_name, contents; image_path, images, config
     )
 end
 
@@ -748,7 +758,8 @@ Generate streaming content using automatic API key detection from environment va
 - `conversation::Vector{Dict{Symbol,Any}}`: The conversation history.
 
 # Keyword Arguments
-- `image_path::String` (optional): The path to the image file to include in the request.
+- `image_path::String` (optional, legacy): The path to the image file to include in the request.
+- `images::AbstractVector` (optional): The images to include in the request. Supports NamedTuples with `path` and `mime_type` keys.
 - `config::GenerateContentConfig` (optional): Configuration for the generation request.
 
 # Returns
@@ -758,11 +769,10 @@ function generate_content_stream(
     model_name::String,
     conversation::Vector{Dict{Symbol,Any}};
     image_path::String="",
+    images::AbstractVector=NamedTuple[],
     config=GenerateContentConfig(),
 )
-    return generate_content_stream(
-        GoogleProvider(), model_name, conversation; image_path, config
-    )
+    return generate_content_stream(GoogleProvider(), model_name, conversation; config)
 end
 
 """
@@ -776,6 +786,7 @@ Generate streaming content using automatic API key detection from environment va
 
 # Keyword Arguments
 - `image_path::String` (optional): The path to the image file to include in the request.
+- `images::AbstractVector` (optional): The images to include in the request. Supports NamedTuples with `path` and `mime_type` keys.
 - `config::GenerateContentConfig` (optional): Configuration for the generation request.
 
 # Returns
@@ -785,9 +796,12 @@ function generate_content_stream(
     model_name::String,
     prompt::String;
     image_path::String="",
+    images::AbstractVector=NamedTuple[],
     config=GenerateContentConfig(),
 )
-    return generate_content_stream(GoogleProvider(), model_name, prompt; image_path, config)
+    return generate_content_stream(
+        GoogleProvider(), model_name, prompt; image_path, images, config
+    )
 end
 
 """

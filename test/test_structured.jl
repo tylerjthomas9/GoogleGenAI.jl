@@ -1,5 +1,5 @@
 @testset "Structured Generation" begin
-    model = "gemini-2.0-flash-lite"
+    model = "gemini-2.5-flash-lite"
     config = GenerateContentConfig(; http_options=http_options)
 
     schema = Dict(

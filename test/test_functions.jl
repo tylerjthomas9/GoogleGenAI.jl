@@ -1,6 +1,6 @@
 
 @testset "Code Generation" begin
-    model = "gemini-2.0-flash"
+    model = "gemini-2.5-flash"
     tools = [Dict(:code_execution => Dict())]
     config = GenerateContentConfig(; http_options, tools)
 
@@ -58,7 +58,7 @@ end
         ),
     ]
 
-    model = "gemini-2.0-flash"
+    model = "gemini-2.5-flash"
     response = generate_content(secret_key, model, conversation; config=config)
     @test response.response_status == 200
     @test response.function_calls !== nothing

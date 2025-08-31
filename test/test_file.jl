@@ -24,7 +24,7 @@
     @info "Sleeping for 5 seconds to allow files to be processed"
     sleep(5) # allow time for the files to be processed 
     contents = ["What files do you have?", uploaded_files...]
-    model = "gemini-2.0-flash-lite"
+    model = "gemini-2.5-flash-lite"
     response = generate_content(secret_key, model, contents;)
 
     # Test that all the files are available, then delete them

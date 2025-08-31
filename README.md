@@ -3,7 +3,6 @@
  [![Code Style: Blue](https://img.shields.io/badge/code%20style-blue-4495d1.svg)](https://github.com/invenia/BlueStyle)
  [![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://tylerjthomas9.github.io/GoogleGenAI.jl)
 
-
 # GoogleGenAI.jl
 
 ## Overview
@@ -71,13 +70,23 @@ response = generate_content(model, prompt; config)
 println(response.text)
 ```
 
-Single image input:
+Single image input (legacy):
 ```julia
 prompt = "What is this image?"
 image_path = "test/input/example.jpg"
 response = generate_content(model, prompt; image_path)
 println(response.text)
 ```
+
+Multi image input:
+```julia
+prompt = "What is this image?"
+image_path = "test/input/example.jpg"
+images = [(path=image_path,), (path=image_path, mime_type="image/png")]
+response = generate_content(model, prompt; images)
+println(response.text)
+```
+
 
 ### Multi-turn conversations
 
@@ -148,7 +157,7 @@ prompt = ("Hi, can you create a 3d rendered image of a pig "*
             "futuristic scifi city with lots of greenery?")
 
 response = generate_content(
-    "gemini-2.0-flash-exp-image-generation",
+    "gemini-2.5-flash-image-preview",
     prompt;
     config
 );
@@ -164,7 +173,7 @@ Edit image with Gemini:
 ```julia
 image_path = "gemini-native-image.png"
 
-model = "gemini-2.0-flash-exp-image-generation"
+model = "gemini-2.5-flash-image-preview"
 prompt = "Make the pig a llama"
 response = generate_content(
     model,
@@ -235,11 +244,10 @@ end
 ```
 outputs
 ```julia
+...
 gemini-2.5-pro-preview-03-25
-gemini-2.5-flash-preview-04-17
+gemini-2.5-flash-preview-05-20
 gemini-2.5-flash
-gemini-2.5-flash
-gemini-2.5-flash-preview-04-17-thinking
 gemini-2.5-flash-lite-preview-06-17
 gemini-2.5-pro-preview-05-06
 gemini-2.5-pro-preview-06-05
@@ -268,6 +276,8 @@ gemma-3-12b-it
 gemma-3-27b-it
 gemma-3n-e4b-it
 gemma-3n-e2b-it
+gemini-2.5-flash-lite
+gemini-2.5-flash-image-preview
 ```
 
 ### Safety Settings
@@ -332,10 +342,10 @@ gemini-2.5-pro-preview-06-05
 gemini-2.5-pro
 gemini-2.0-flash
 gemini-2.0-flash-001
-gemini-2.0-flash-lite-001
-gemini-2.0-flash-lite
-gemini-2.0-flash-lite-preview-02-05
-gemini-2.0-flash-lite-preview
+gemini-2.5-flash-lite-001
+gemini-2.5-flash-lite
+gemini-2.5-flash-lite-preview-02-05
+gemini-2.5-flash-lite-preview
 gemini-2.0-pro-exp
 gemini-2.0-pro-exp-02-05
 gemini-exp-1206
