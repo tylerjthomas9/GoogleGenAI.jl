@@ -49,7 +49,7 @@ response = generate_content(api_key, model, prompt)
 Create a `GoogleProvider` instance with your API key:
 
 ```julia
-provider = GoogleProvider(; api_key="AIzaSyCRfi_dYiiZ5yJL5eIJlaKg2qp0bLooBlM")
+provider = GoogleProvider(; api_key="your-api-key-here")
 response = generate_content(provider, model, prompt)
 ```
 
