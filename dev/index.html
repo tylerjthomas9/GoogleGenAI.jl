@@ -9,9 +9,13 @@ prompt = &quot;Hello&quot;
 response = generate_content(model, prompt)
 println(response.text)</code></pre><p>Gemini API config:</p><pre><code class="language-julia hljs">config = GenerateContentConfig(; max_output_tokens=50)
 response = generate_content(model, prompt; config)
-println(response.text)</code></pre><p>Single image input:</p><pre><code class="language-julia hljs">prompt = &quot;What is this image?&quot;
+println(response.text)</code></pre><p>Single image input (legacy):</p><pre><code class="language-julia hljs">prompt = &quot;What is this image?&quot;
 image_path = &quot;test/input/example.jpg&quot;
 response = generate_content(model, prompt; image_path)
+println(response.text)</code></pre><p>Multi image input:</p><pre><code class="language-julia hljs">prompt = &quot;What is this image?&quot;
+image_path = &quot;test/input/example.jpg&quot;
+images = [(path=image_path,), (path=image_path, mime_type=&quot;image/png&quot;)]
+response = generate_content(model, prompt; images)
 println(response.text)</code></pre><h3 id="Multi-turn-conversations"><a class="docs-heading-anchor" href="#Multi-turn-conversations">Multi-turn conversations</a><a id="Multi-turn-conversations-1"></a><a class="docs-heading-anchor-permalink" href="#Multi-turn-conversations" title="Permalink"></a></h3><pre><code class="language-julia hljs">using GoogleGenAI
 
 config = GenerateContentConfig(; max_output_tokens=50)
@@ -59,7 +63,7 @@ prompt = (&quot;Hi, can you create a 3d rendered image of a pig &quot;*
             &quot;futuristic scifi city with lots of greenery?&quot;)
 
 response = generate_content(
-    &quot;gemini-2.0-flash-exp-image-generation&quot;,
+    &quot;gemini-2.5-flash-image-preview&quot;,
     prompt;
     config
 );
@@ -70,7 +74,7 @@ if !isempty(response.images)
     end
 end</code></pre><p>Edit image with Gemini:</p><pre><code class="language-julia hljs">image_path = &quot;gemini-native-image.png&quot;
 
-model = &quot;gemini-2.0-flash-exp-image-generation&quot;
+model = &quot;gemini-2.5-flash-image-preview&quot;
 prompt = &quot;Make the pig a llama&quot;
 response = generate_content(
     model,
@@ -104,11 +108,10 @@ for m in models
     if &quot;generateContent&quot; in m[:supported_generation_methods]
         println(m[:name])
     end
-end</code></pre><p>outputs</p><pre><code class="language-julia hljs">gemini-2.5-pro-preview-03-25
-gemini-2.5-flash-preview-04-17
+end</code></pre><p>outputs</p><pre><code class="language-julia hljs">...
+gemini-2.5-pro-preview-03-25
+gemini-2.5-flash-preview-05-20
 gemini-2.5-flash
-gemini-2.5-flash
-gemini-2.5-flash-preview-04-17-thinking
 gemini-2.5-flash-lite-preview-06-17
 gemini-2.5-pro-preview-05-06
 gemini-2.5-pro-preview-06-05
@@ -136,7 +139,9 @@ gemma-3-4b-it
 gemma-3-12b-it
 gemma-3-27b-it
 gemma-3n-e4b-it
-gemma-3n-e2b-it</code></pre><h3 id="Safety-Settings"><a class="docs-heading-anchor" href="#Safety-Settings">Safety Settings</a><a id="Safety-Settings-1"></a><a class="docs-heading-anchor-permalink" href="#Safety-Settings" title="Permalink"></a></h3><p>More information about the safety settings can be found <a href="https://ai.google.dev/gemini-api/docs/safety-settings">here</a>.</p><pre><code class="language-julia hljs">using GoogleGenAI
+gemma-3n-e2b-it
+gemini-2.5-flash-lite
+gemini-2.5-flash-image-preview</code></pre><h3 id="Safety-Settings"><a class="docs-heading-anchor" href="#Safety-Settings">Safety Settings</a><a id="Safety-Settings-1"></a><a class="docs-heading-anchor-permalink" href="#Safety-Settings" title="Permalink"></a></h3><p>More information about the safety settings can be found <a href="https://ai.google.dev/gemini-api/docs/safety-settings">here</a>.</p><pre><code class="language-julia hljs">using GoogleGenAI
 
 safety_settings = [
     SafetySetting(category=&quot;HARM_CATEGORY_HARASSMENT&quot;, threshold=&quot;HARM_BLOCK_THRESHOLD_UNSPECIFIED&quot;),
@@ -173,10 +178,10 @@ gemini-2.5-pro-preview-06-05
 gemini-2.5-pro
 gemini-2.0-flash
 gemini-2.0-flash-001
-gemini-2.0-flash-lite-001
-gemini-2.0-flash-lite
-gemini-2.0-flash-lite-preview-02-05
-gemini-2.0-flash-lite-preview
+gemini-2.5-flash-lite-001
+gemini-2.5-flash-lite
+gemini-2.5-flash-lite-preview-02-05
+gemini-2.5-flash-lite-preview
 gemini-2.0-pro-exp
 gemini-2.0-pro-exp-02-05
 gemini-exp-1206
@@ -417,4 +422,4 @@ final_response = generate_content(
     conversation_history
 )
 
-println(&quot;\nFinal response: $(final_response.text)&quot;)</code></pre></article><nav class="docs-footer"><a class="docs-footer-nextpage" href="api/">API »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.14.1 on <span class="colophon-date" title="Sunday 31 August 2025 17:50">Sunday 31 August 2025</span>. Using Julia version 1.11.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+println(&quot;\nFinal response: $(final_response.text)&quot;)</code></pre></article><nav class="docs-footer"><a class="docs-footer-nextpage" href="api/">API »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.14.1 on <span class="colophon-date" title="Sunday 31 August 2025 18:30">Sunday 31 August 2025</span>. Using Julia version 1.11.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
