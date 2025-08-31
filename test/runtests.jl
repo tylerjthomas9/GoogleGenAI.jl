@@ -39,7 +39,7 @@ if haskey(ENV, "GOOGLE_API_KEY") || haskey(ENV, "GEMINI_API_KEY")
         config = GenerateContentConfig(;
             http_options, safety_settings, max_output_tokens=50
         )
-        model = "gemini-2.0-flash-lite"
+        model = "gemini-2.5-flash-lite"
         embedding_model = "text-embedding-004"
         # Generate text from text
         response = generate_content(secret_key, model, "Hello"; config)
@@ -73,7 +73,7 @@ if haskey(ENV, "GOOGLE_API_KEY") || haskey(ENV, "GEMINI_API_KEY")
     end
 
     @testset "Streaming Content Generation" begin
-        model = "gemini-2.0-flash-lite"
+        model = "gemini-2.5-flash-lite"
         config = GenerateContentConfig(; http_options=http_options, max_output_tokens=50)
 
         # Test single prompt streaming
@@ -125,7 +125,7 @@ if haskey(ENV, "GOOGLE_API_KEY") || haskey(ENV, "GEMINI_API_KEY")
     end
 
     @testset "System Instructions" begin
-        model = "gemini-2.0-flash-lite"
+        model = "gemini-2.5-flash-lite"
 
         # Test basic system instruction
         config = GenerateContentConfig(;
@@ -161,6 +161,30 @@ if haskey(ENV, "GOOGLE_API_KEY") || haskey(ENV, "GEMINI_API_KEY")
                 push!(chunks, chunk)
             end
         end
+        @test length(chunks) > 0
+        @test any(chunk -> !isempty(get(chunk, :text, "")), chunks)
+    end
+
+    @testset "Multi-Image Input" begin
+        model = "gemini-2.5-flash-lite"
+        prompt = "Describe the contents of these two images."
+        images = [(path="input/example.jpg",), (path="input/example.jpg",)]
+
+        response = generate_content(secret_key, model, prompt; images)
+        @test response.response_status == 200
+        @test !isempty(response.text)
+
+        config = GenerateContentConfig(; http_options=http_options, max_output_tokens=50)
+        stream = generate_content_stream(secret_key, model, prompt; images, config)
+        chunks = []
+        for chunk in stream
+            if haskey(chunk, :error)
+                @warn "Error in streaming: $(chunk.error)"
+            end
+            push!(chunks, chunk)
+        end
+
+        # Verify we got at least one chunk and that it has text
         @test length(chunks) > 0
         @test any(chunk -> !isempty(get(chunk, :text, "")), chunks)
     end
