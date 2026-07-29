@@ -14,6 +14,21 @@ using Test
     @test formatted["parts"][1]["text"] == instruction
 end
 
+@testset "Logprobs Generation Config" begin
+    config = GenerateContentConfig(; response_logprobs=true, logprobs=5)
+    generation_config = GoogleGenAI._build_generation_config(config)
+
+    @test generation_config["responseLogprobs"] === true
+    @test generation_config["logprobs"] == 5
+end
+
+@testset "Logprobs Defaults Are Omitted" begin
+    generation_config = GoogleGenAI._build_generation_config(GenerateContentConfig())
+
+    @test !haskey(generation_config, "responseLogprobs")
+    @test !haskey(generation_config, "logprobs")
+end
+
 if haskey(ENV, "GOOGLE_API_KEY") || haskey(ENV, "GEMINI_API_KEY")
     if haskey(ENV, "GOOGLE_API_KEY")
         @info "Using GOOGLE_API_KEY"
