@@ -416,6 +416,9 @@ function _build_generation_config(config::GenerateContentConfig)
         (generation_config["maxOutputTokens"] = config.max_output_tokens)
     config.stop_sequences !== nothing &&
         (generation_config["stopSequences"] = config.stop_sequences)
+    config.response_logprobs !== nothing &&
+        (generation_config["responseLogprobs"] = config.response_logprobs)
+    config.logprobs !== nothing && (generation_config["logprobs"] = config.logprobs)
     config.response_mime_type !== nothing &&
         (generation_config["responseMimeType"] = config.response_mime_type)
     config.response_schema !== nothing &&
