@@ -237,7 +237,7 @@ end
 
 Configuration for thinking features in Gemini models.
 
-The Gemini 2.5 series models use an internal "thinking process" during response generation. 
+The Gemini models use an internal "thinking process" during response generation.
 This process contributes to their improved reasoning capabilities and helps them use multi-step 
 planning to solve complex tasks.
 

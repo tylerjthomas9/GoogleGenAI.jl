@@ -7,12 +7,12 @@
     )
 
     response = generate_content(
-        secret_key, "gemini-2.5-flash-image-preview", prompt; config
+        secret_key, "gemini-3.1-flash-image", prompt; config
     )
     @test !isempty(response.images)
 
     image_path = "input/example.jpg"
-    model = "gemini-2.5-flash-image-preview"
+    model = "gemini-3.1-flash-image"
     prompt = "Make all of the circles green"
     response = generate_content(secret_key, model, prompt; image_path, config)
     @test !isempty(response.images)

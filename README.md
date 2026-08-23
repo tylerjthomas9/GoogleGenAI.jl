@@ -57,7 +57,7 @@ response = generate_content(provider, model, prompt)
 ```julia
 using GoogleGenAI
 
-model = "gemini-2.5-flash"
+model = "gemini-3.7-flash"
 prompt = "Hello"
 response = generate_content(model, prompt)
 println(response.text)
@@ -94,7 +94,7 @@ println(response.text)
 using GoogleGenAI
 
 config = GenerateContentConfig(; max_output_tokens=50)
-model = "gemini-2.5-flash"
+model = "gemini-3.7-flash"
 conversation = [
     Dict(:role => "user", :parts => [Dict(:text => "When was Julia 1.0 released?")])
 ]
@@ -113,7 +113,7 @@ println("Model: ", response.text)
 ```julia
 using GoogleGenAI
 
-model = "gemini-2.5-flash"
+model = "gemini-3.7-flash"
 prompt = "Why is the sky blue?"
 
 stream = generate_content_stream(model, prompt)
@@ -129,7 +129,7 @@ For multi-turn conversations with streaming:
 using GoogleGenAI
 
 provider = GoogleProvider()
-model = "gemini-2.5-flash"
+model = "gemini-3.7-flash"
 conversation = [
     Dict(:role => "user", :parts => [Dict(:text => "Write a short poem about Julia programming language")])
 ]
@@ -157,7 +157,7 @@ prompt = ("Hi, can you create a 3d rendered image of a pig "*
             "futuristic scifi city with lots of greenery?")
 
 response = generate_content(
-    "gemini-2.5-flash-image-preview",
+    "gemini-3.1-flash-image",
     prompt;
     config
 );
@@ -173,7 +173,7 @@ Edit image with Gemini:
 ```julia
 image_path = "gemini-native-image.png"
 
-model = "gemini-2.5-flash-image-preview"
+model = "gemini-3.1-flash-image"
 prompt = "Make the pig a llama"
 response = generate_content(
     model,
@@ -193,7 +193,7 @@ end
 ```julia
 using GoogleGenAI
 
-model = "gemini-2.5-flash"
+model = "gemini-3.7-flash"
 n_tokens = count_tokens(model, "The Julia programming language")
 println(n_tokens)
 ```
@@ -245,39 +245,30 @@ end
 outputs
 ```julia
 ...
-gemini-2.5-pro-preview-03-25
-gemini-2.5-flash-preview-05-20
-gemini-2.5-flash
-gemini-2.5-flash-lite-preview-06-17
-gemini-2.5-pro-preview-05-06
-gemini-2.5-pro-preview-06-05
+gemini-3.7-flash
+gemini-3.6-flash
+gemini-3.5-flash
+gemini-3.5-flash-lite
+gemini-3.1-flash-lite
+gemini-3.1-pro-preview
+gemini-3-flash-preview
 gemini-2.5-pro
-gemini-2.0-flash-exp
-gemini-2.0-flash
-gemini-2.0-flash-001
-gemini-2.0-flash-exp-image-generation
-gemini-2.0-flash-lite-001
-gemini-2.0-flash-lite
-gemini-2.0-flash-preview-image-generation
-gemini-2.0-flash-lite-preview-02-05
-gemini-2.0-flash-lite-preview
-gemini-2.0-pro-exp
-gemini-2.0-pro-exp-02-05
-gemini-exp-1206
-gemini-2.0-flash-thinking-exp-01-21
-gemini-2.0-flash-thinking-exp
-gemini-2.0-flash-thinking-exp-1219
+gemini-2.5-flash
+gemini-2.5-flash-lite
+gemini-2.5-flash-image
+gemini-3.1-flash-image
+gemini-3.1-flash-lite-image
+gemini-3-pro-image
+gemini-3.1-flash-tts-preview
 gemini-2.5-flash-preview-tts
 gemini-2.5-pro-preview-tts
-learnlm-2.0-flash-experimental
+gemini-embedding-001
 gemma-3-1b-it
 gemma-3-4b-it
 gemma-3-12b-it
 gemma-3-27b-it
 gemma-3n-e4b-it
 gemma-3n-e2b-it
-gemini-2.5-flash-lite
-gemini-2.5-flash-image-preview
 ```
 
 ### Safety Settings
@@ -294,7 +285,7 @@ safety_settings = [
     SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_LOW_AND_ABOVE"),
     SafetySetting(category="HARM_CATEGORY_CIVIC_INTEGRITY", threshold="OFF"),
 ]
-model = "gemini-2.5-flash"
+model = "gemini-3.7-flash"
 prompt = "Hello"
 config = GenerateContentConfig(; safety_settings)
 response = generate_content(model, prompt; config)
@@ -302,7 +293,7 @@ response = generate_content(model, prompt; config)
 
 ### Thinking 
 
-The Gemini 2.5 series models use an internal "thinking process" during response generation. This process contributes to their improved reasoning capabilities and helps them use multi-step planning to solve complex tasks. This thinking can be limited by setting the `thinking_budget`. 
+The Gemini 2.5 and 3 series models use an internal "thinking process" during response generation. This process contributes to their improved reasoning capabilities and helps them use multi-step planning to solve complex tasks. This thinking can be limited by setting the `thinking_budget`. 
 
 ```julia
 using GoogleGenAI
@@ -311,7 +302,7 @@ thinking_config = ThinkingConfig(; thinking_budget=100, include_thoughts=true)
 config = GenerateContentConfig(;
     thinking_config
 )
-model = "gemini-2.5-flash"
+model = "gemini-3.7-flash"
 response = generate_content(model, "Hello"; config)
 ```
 
@@ -331,27 +322,30 @@ for m in models
 end
 ```
 ```julia
-gemini-2.5-pro-preview-03-25
-gemini-2.5-flash-preview-04-17
-gemini-2.5-flash-preview-05-20
-gemini-2.5-flash
-gemini-2.5-flash-preview-04-17-thinking
-gemini-2.5-flash-lite-preview-06-17
-gemini-2.5-pro-preview-05-06
-gemini-2.5-pro-preview-06-05
+gemini-3.7-flash
+gemini-3.6-flash
+gemini-3.5-flash
+gemini-3.5-flash-lite
+gemini-3.1-flash-lite
+gemini-3.1-pro-preview
+gemini-3-flash-preview
 gemini-2.5-pro
-gemini-2.0-flash
-gemini-2.0-flash-001
-gemini-2.5-flash-lite-001
+gemini-2.5-flash
 gemini-2.5-flash-lite
-gemini-2.5-flash-lite-preview-02-05
-gemini-2.5-flash-lite-preview
-gemini-2.0-pro-exp
-gemini-2.0-pro-exp-02-05
-gemini-exp-1206
-gemini-2.0-flash-thinking-exp-01-21
-gemini-2.0-flash-thinking-exp
-gemini-2.0-flash-thinking-exp-1219
+gemini-2.5-flash-image
+gemini-3.1-flash-image
+gemini-3.1-flash-lite-image
+gemini-3-pro-image
+gemini-3.1-flash-tts-preview
+gemini-2.5-flash-preview-tts
+gemini-2.5-pro-preview-tts
+gemini-embedding-001
+gemma-3-1b-it
+gemma-3-4b-it
+gemma-3-12b-it
+gemma-3-27b-it
+gemma-3n-e4b-it
+gemma-3n-e2b-it
 ```
 
 Cache content to reuse it across multiple requests:
@@ -361,7 +355,7 @@ using GoogleGenAI
 
 # API key is automatically loaded from environment variable
 provider = GoogleProvider()
-model = "gemini-2.5-flash"
+model = "gemini-3.7-flash"
 
 # Create cached content
 text = read("test/input/example.txt", String)
@@ -409,7 +403,7 @@ upload_result = upload_file(
 )
 
 # generate content with file
-model = "gemini-2.5-flash"
+model = "gemini-3.7-flash"
 prompt = "What is this image?"
 contents = [prompt, upload_result]
 response = generate_content(
@@ -435,7 +429,7 @@ Json
 using GoogleGenAI
 using JSON3
 
-model = "gemini-2.5-flash"
+model = "gemini-3.7-flash"
 
 # Define a JSON schema for an Array of Objects
 # Each object has "recipe_name" (a String) and "ingredients" (an Array of Strings).
@@ -520,7 +514,7 @@ using GoogleGenAI
 tools = [Dict(:code_execution => Dict())]
 config = GenerateContentConfig(; tools)
 
-model = "gemini-2.5-flash"
+model = "gemini-3.7-flash"
 prompt = "Write a function to calculate the factorial of a number."
 response = generate_content(model, prompt; config=config)
 println(response.text)
@@ -572,7 +566,7 @@ config = GenerateContentConfig(
 
 # Step 4: Get the initial response from the model, which should be a function call
 response = generate_content(
-    "gemini-2.5-flash",
+    "gemini-3.7-flash",
     [user_message];
     config=config
 )
@@ -623,7 +617,7 @@ conversation_history = [
 
 # Step 8: Get the final, natural language response from the model
 final_response = generate_content(
-    "gemini-2.5-flash",
+    "gemini-3.7-flash",
     conversation_history
 )
 

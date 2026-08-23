@@ -54,7 +54,7 @@ if haskey(ENV, "GOOGLE_API_KEY") || haskey(ENV, "GEMINI_API_KEY")
         config = GenerateContentConfig(;
             http_options, safety_settings, max_output_tokens=50
         )
-        model = "gemini-2.5-flash-lite"
+        model = "gemini-3.5-flash-lite"
         embedding_model = "text-embedding-004"
         # Generate text from text
         response = generate_content(secret_key, model, "Hello"; config)
@@ -88,7 +88,7 @@ if haskey(ENV, "GOOGLE_API_KEY") || haskey(ENV, "GEMINI_API_KEY")
     end
 
     @testset "Streaming Content Generation" begin
-        model = "gemini-2.5-flash-lite"
+        model = "gemini-3.5-flash-lite"
         config = GenerateContentConfig(; http_options=http_options, max_output_tokens=50)
 
         # Test single prompt streaming
@@ -133,14 +133,14 @@ if haskey(ENV, "GOOGLE_API_KEY") || haskey(ENV, "GEMINI_API_KEY")
         config = GenerateContentConfig(;
             http_options, safety_settings, thinking_config, max_output_tokens=50
         )
-        model = "gemini-2.5-flash-preview-05-20"
+        model = "gemini-3.5-flash-lite"
         # Generate text from text
         response = generate_content(secret_key, model, "Hello"; config)
         @test response.response_status == 200
     end
 
     @testset "System Instructions" begin
-        model = "gemini-2.5-flash-lite"
+        model = "gemini-3.5-flash-lite"
 
         # Test basic system instruction
         config = GenerateContentConfig(;
@@ -181,7 +181,7 @@ if haskey(ENV, "GOOGLE_API_KEY") || haskey(ENV, "GEMINI_API_KEY")
     end
 
     @testset "Multi-Image Input" begin
-        model = "gemini-2.5-flash-lite"
+        model = "gemini-3.5-flash-lite"
         prompt = "Describe the contents of these two images."
         images = [(path="input/example.jpg",), (path="input/example.jpg",)]
 
