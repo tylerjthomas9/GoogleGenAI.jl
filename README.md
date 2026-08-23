@@ -422,6 +422,53 @@ list_result = list_files()
 delete_file(upload_result[:name])
 ```
 
+## Batch Predictions
+
+Submit large volumes of requests asynchronously. Pass inline requests (total size < 20MB) or a JSONL file uploaded via the File API (up to 2GB).
+
+```julia
+using GoogleGenAI
+
+# 1. Create an inline batch job
+job = create_batch_job("gemini-2.5-flash"; display_name="my-batch", requests=[
+    BatchRequest("Tell me a one-sentence joke."; key="request-1"),
+    BatchRequest("Why is the sky blue?"; key="request-2"),
+])
+job_name = String(job[:name])  # e.g. "batches/123456"
+
+# 2. Poll until the job reaches a terminal state
+job = poll_batch_job(job_name; interval_s=30, verbose=true)
+
+# 3. Extract results: Vector{Pair{key, text}} (errors reported as "ERROR: ...")
+results = extract_batch_text(job)
+for (key, text) in results
+    println("-- $key --\n$text")
+end
+```
+
+For larger workloads, upload a JSONL input file first and pass its name:
+
+```julia
+# my-batch.jsonl contains one line per request:
+# {"key": "request-1", "request": {"contents": [{"parts": [{"text": "..."}]}]}}
+file = upload_file("my-batch.jsonl"; mime_type="application/jsonl")
+job = create_batch_job("gemini-2.5-flash"; input_file=String(file[:name]))
+
+# After polling succeeds, download and parse the JSONL output file:
+finished_job = poll_batch_job(String(job[:name]))
+out_file = String(finished_job[:response][:responsesFile])
+lines = download_batch_output_file(out_file)
+texts = reduce(vcat, extract_batch_text.(lines))
+```
+
+Other job management functions:
+```julia
+get_batch_job(job_name)      # current status/metadata
+String(get_batch_job(job_name)[:metadata][:state])
+cancel_batch_job(job_name)   # stops processing new requests
+delete_batch_job(job_name)   # removes the job entirely
+```
+
 ## Structured Generation
 
 Json 
