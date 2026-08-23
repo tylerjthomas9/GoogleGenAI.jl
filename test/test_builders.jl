@@ -32,9 +32,7 @@ end
         description="Get current weather",
         parameters=FunctionParameter(;
             type="object",
-            properties=Dict{String,Any}(
-                "location" => Dict{String,Any}("type" => "string"),
-            ),
+            properties=Dict{String,Any}("location" => Dict{String,Any}("type" => "string")),
             required=["location"],
         ),
     )
@@ -55,9 +53,9 @@ end
 
 @testset "Native Tool Detection" begin
     @test GoogleGenAI.is_native_tool(Dict{Symbol,Any}(:googleSearch => Dict())) ==
-          (true, GOOGLE_SEARCH)
+        (true, GOOGLE_SEARCH)
     @test GoogleGenAI.is_native_tool(Dict{Symbol,Any}(:codeExecution => Dict())) ==
-          (true, CODE_EXECUTION)
+        (true, CODE_EXECUTION)
     custom = Dict{Symbol,Any}(:unknownTool => Dict{String,Any}())
     @test GoogleGenAI.is_native_tool(custom) == (false, nothing)
 end

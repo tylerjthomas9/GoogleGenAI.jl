@@ -8,6 +8,7 @@ include("utils.jl")
 include("core.jl")
 include("functions.jl")
 include("generate.jl")
+include("chat.jl")
 include("cache.jl")
 include("file.jl")
 include("embed.jl")
@@ -26,6 +27,12 @@ export GoogleProvider,
     execute_parallel_function_calls,
     generate_content,
     generate_content_stream,
+    Chat,
+    create_chat,
+    send_message,
+    send_message_stream,
+    get_history,
+    clear_history!,
     count_tokens,
     embed_content,
     list_models,

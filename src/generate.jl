@@ -278,7 +278,7 @@ function _image_inline_parts(; image_path::String="", images::AbstractVector=Nam
         end
     end
 
-    parts
+    return parts
 end
 
 """

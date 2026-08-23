@@ -30,8 +30,7 @@ end
 
 @testset "Batch request body (inline)" begin
     body = GoogleGenAI._build_batch_request_body(;
-        requests=[BatchRequest("hello")],
-        display_name="my-batch",
+        requests=[BatchRequest("hello")], display_name="my-batch"
     )
     @test haskey(body, "batch")
     batch = body["batch"]
@@ -42,7 +41,7 @@ end
 
     @test_throws ArgumentError GoogleGenAI._build_batch_request_body()
     @test_throws ArgumentError GoogleGenAI._build_batch_request_body(;
-        requests=[BatchRequest("x")], input_file="files/123",
+        requests=[BatchRequest("x")], input_file="files/123"
     )
 end
 

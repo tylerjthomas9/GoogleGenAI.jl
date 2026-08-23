@@ -35,8 +35,9 @@ struct FakeResponse
     body::Vector{UInt8}
     status::Int
 end
-FakeResponse(body::AbstractString; status=200) =
-    FakeResponse(Vector{UInt8}(codeunits(body)), status)
+function FakeResponse(body::AbstractString; status=200)
+    return FakeResponse(Vector{UInt8}(codeunits(body)), status)
+end
 
 load_fixture(name) = read(joinpath(@__DIR__, "fixtures", name), String)
 

@@ -11,27 +11,25 @@ Base.@kwdef struct BatchRequest
     config::GenerateContentConfig = GenerateContentConfig()
 end
 
-BatchRequest(prompt::AbstractString; kwargs...) = BatchRequest(; prompt=String(prompt), kwargs...)
+function BatchRequest(prompt::AbstractString; kwargs...)
+    return BatchRequest(; prompt=String(prompt), kwargs...)
+end
 
 const COMPLETED_BATCH_STATES = (
-    "JOB_STATE_SUCCEEDED",
-    "JOB_STATE_FAILED",
-    "JOB_STATE_CANCELLED",
-    "JOB_STATE_EXPIRED",
+    "JOB_STATE_SUCCEEDED", "JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_EXPIRED"
 )
 
 _is_completed_state(state::AbstractString) = state ∈ COMPLETED_BATCH_STATES
 
 function _batch_request_payload(req::BatchRequest)
     request_body = Dict{String,Any}(
-        "contents" => [
-            Dict("role" => "user", "parts" => [Dict("text" => req.prompt)])
-        ],
+        "contents" => [Dict("role" => "user", "parts" => [Dict("text" => req.prompt)])],
         "generationConfig" => GoogleGenAI._build_generation_config(req.config),
     )
     if req.config.system_instruction !== nothing
-        request_body["systemInstruction"] =
-            GoogleGenAI._format_system_instruction(req.config.system_instruction)
+        request_body["systemInstruction"] = GoogleGenAI._format_system_instruction(
+            req.config.system_instruction
+        )
     end
     payload = Dict{String,Any}("request" => request_body)
     if !isempty(req.key)
@@ -51,7 +49,11 @@ function _build_inline_requests(requests::Vector{<:BatchRequest})
     return payloads
 end
 
-function _build_batch_request_body(; requests::Union{Nothing,Vector{BatchRequest}}=nothing, input_file::Union{Nothing,String}=nothing, display_name::String="")
+function _build_batch_request_body(;
+    requests::Union{Nothing,Vector{BatchRequest}}=nothing,
+    input_file::Union{Nothing,String}=nothing,
+    display_name::String="",
+)
     if (requests === nothing) == (input_file === nothing)
         throw(ArgumentError("exactly one of `requests` or `input_file` must be provided"))
     end
@@ -108,30 +110,21 @@ function create_batch_job(
     end
     model_name = startswith(model_name, "models/") ? model_name : "models/$model_name"
 
-    body = _build_batch_request_body(; requests=requests, input_file=input_file, display_name=display_name)
+    body = _build_batch_request_body(;
+        requests=requests, input_file=input_file, display_name=display_name
+    )
 
     response = _request(
-        provider,
-        "$model_name:batchGenerateContent",
-        :POST,
-        body;
-        http_kwargs...,
+        provider, "$model_name:batchGenerateContent", :POST, body; http_kwargs...
     )
     return JSON3.read(String(response.body))
 end
 
-function create_batch_job(
-    api_key::String,
-    model_name::String;
-    kwargs...,
-)
+function create_batch_job(api_key::String, model_name::String; kwargs...)
     return create_batch_job(GoogleProvider(; api_key=api_key), model_name; kwargs...)
 end
 
-function create_batch_job(
-    model_name::String;
-    kwargs...,
-)
+function create_batch_job(model_name::String; kwargs...)
     return create_batch_job(GoogleProvider(), model_name; kwargs...)
 end
 
@@ -144,11 +137,7 @@ Inspect `metadata.state` for the job state (one of `JOB_STATE_PENDING`,
 `JOB_STATE_CANCELLED`, `JOB_STATE_EXPIRED`) and `response` for results once
 the job has succeeded.
 """
-function get_batch_job(
-    provider::AbstractGoogleProvider,
-    job_name::String;
-    http_kwargs...,
-)
+function get_batch_job(provider::AbstractGoogleProvider, job_name::String; http_kwargs...)
     response = _request(provider, job_name, :GET, Dict(); http_kwargs...)
     return JSON3.read(String(response.body))
 end
@@ -157,8 +146,9 @@ function get_batch_job(api_key::String, job_name::String; http_kwargs...)
     return get_batch_job(GoogleProvider(; api_key=api_key), job_name; http_kwargs...)
 end
 
-get_batch_job(job_name::String; http_kwargs...) =
-    get_batch_job(GoogleProvider(), job_name; http_kwargs...)
+function get_batch_job(job_name::String; http_kwargs...)
+    return get_batch_job(GoogleProvider(), job_name; http_kwargs...)
+end
 
 """
     poll_batch_job(api_thing, job_name::String; interval_s::Real=30, timeout_s::Real=86_400, verbose::Bool=false, http_kwargs...) -> JSON3.Object
@@ -179,13 +169,12 @@ function poll_batch_job(
     deadline = time() + timeout_s
     while true
         job = get_batch_job(provider, job_name; http_kwargs...)
-        state = something(
-            _batch_state(job),
-            "JOB_STATE_PENDING",
-        )
+        state = something(_batch_state(job), "JOB_STATE_PENDING")
         _is_completed_state(state) && return job
-        verbose && @info "Batch job $job_name not finished (state: $state). Waiting $(interval_s)s..."
-        time() > deadline && error("Timed out polling batch job $job_name after $timeout_s seconds")
+        verbose &&
+            @info "Batch job $job_name not finished (state: $state). Waiting $(interval_s)s..."
+        time() > deadline &&
+            error("Timed out polling batch job $job_name after $timeout_s seconds")
         sleep(interval_s)
     end
 end
@@ -194,8 +183,9 @@ function poll_batch_job(api_key::String, job_name::String; kwargs...)
     return poll_batch_job(GoogleProvider(; api_key=api_key), job_name; kwargs...)
 end
 
-poll_batch_job(job_name::String; kwargs...) =
-    poll_batch_job(GoogleProvider(), job_name; kwargs...)
+function poll_batch_job(job_name::String; kwargs...)
+    return poll_batch_job(GoogleProvider(), job_name; kwargs...)
+end
 
 function _batch_state(job::JSON3.Object)
     meta = get(job, :metadata, nothing)
@@ -210,19 +200,19 @@ Cancels an ongoing batch job. The job stops processing new requests and its
 final state becomes `JOB_STATE_CANCELLED`.
 """
 function cancel_batch_job(
-    provider::AbstractGoogleProvider,
-    job_name::String;
-    http_kwargs...,
+    provider::AbstractGoogleProvider, job_name::String; http_kwargs...
 )
     response = _request(provider, "$job_name:cancel", :POST, Dict(); http_kwargs...)
     return JSON3.read(String(response.body))
 end
 
-cancel_batch_job(api_key::String, job_name::String; http_kwargs...) =
-    cancel_batch_job(GoogleProvider(; api_key=api_key), job_name; http_kwargs...)
+function cancel_batch_job(api_key::String, job_name::String; http_kwargs...)
+    return cancel_batch_job(GoogleProvider(; api_key=api_key), job_name; http_kwargs...)
+end
 
-cancel_batch_job(job_name::String; http_kwargs...) =
-    cancel_batch_job(GoogleProvider(), job_name; http_kwargs...)
+function cancel_batch_job(job_name::String; http_kwargs...)
+    return cancel_batch_job(GoogleProvider(), job_name; http_kwargs...)
+end
 
 """
     delete_batch_job(api_thing, job_name::String; http_kwargs...)
@@ -231,19 +221,19 @@ Deletes a batch job. The job stops processing new requests and is removed from
 the list of batch jobs.
 """
 function delete_batch_job(
-    provider::AbstractGoogleProvider,
-    job_name::String;
-    http_kwargs...,
+    provider::AbstractGoogleProvider, job_name::String; http_kwargs...
 )
     response = _request(provider, "$job_name:delete", :DELETE, Dict(); http_kwargs...)
     return JSON3.read(String(response.body))
 end
 
-delete_batch_job(api_key::String, job_name::String; http_kwargs...) =
-    delete_batch_job(GoogleProvider(; api_key=api_key), job_name; http_kwargs...)
+function delete_batch_job(api_key::String, job_name::String; http_kwargs...)
+    return delete_batch_job(GoogleProvider(; api_key=api_key), job_name; http_kwargs...)
+end
 
-delete_batch_job(job_name::String; http_kwargs...) =
-    delete_batch_job(GoogleProvider(), job_name; http_kwargs...)
+function delete_batch_job(job_name::String; http_kwargs...)
+    return delete_batch_job(GoogleProvider(), job_name; http_kwargs...)
+end
 
 """
     download_batch_output_file(api_thing, file_name::String; http_kwargs...) -> Vector{JSON3.Object}
@@ -253,9 +243,7 @@ Each parsed line is either a `GenerateContentResponse` or a status object
 describing an error for that specific request.
 """
 function download_batch_output_file(
-    provider::AbstractGoogleProvider,
-    file_name::String;
-    http_kwargs...,
+    provider::AbstractGoogleProvider, file_name::String; http_kwargs...
 )
     url = "$(provider.base_url)/download/$(provider.api_version)/$file_name:download?alt=media&key=$(provider.api_key)"
     response = HTTP.get(url; http_kwargs...)
@@ -265,11 +253,15 @@ function download_batch_output_file(
     return [JSON3.read(line) for line in lines]
 end
 
-download_batch_output_file(file_name::String; http_kwargs...) =
-    download_batch_output_file(GoogleProvider(), file_name; http_kwargs...)
+function download_batch_output_file(file_name::String; http_kwargs...)
+    return download_batch_output_file(GoogleProvider(), file_name; http_kwargs...)
+end
 
-download_batch_output_file(api_key::String, file_name::String; http_kwargs...) =
-    download_batch_output_file(GoogleProvider(; api_key=api_key), file_name; http_kwargs...)
+function download_batch_output_file(api_key::String, file_name::String; http_kwargs...)
+    return download_batch_output_file(
+        GoogleProvider(; api_key=api_key), file_name; http_kwargs...
+    )
+end
 
 """
     extract_batch_text(result)::Vector{Pair{String,String}}
@@ -287,10 +279,16 @@ function extract_batch_text(result::JSON3.Object)
 
     # File-based result line: {"key": ..., "response": {...}} or error status
     if haskey(result, :key) && haskey(result, :response) && result.response !== nothing
-        push!(pairs_out, string(result.key) => _generate_content_response_text(result.response))
+        push!(
+            pairs_out,
+            string(result.key) => _generate_content_response_text(result.response),
+        )
         return pairs_out
     elseif haskey(result, :key) && haskey(result, :error) && result.error !== nothing
-        push!(pairs_out, string(result.key) => "ERROR: $(get(result.error, :message, result.error))")
+        push!(
+            pairs_out,
+            string(result.key) => "ERROR: $(get(result.error, :message, result.error))",
+        )
         return pairs_out
     end
 
@@ -319,8 +317,7 @@ function extract_batch_text(result::JSON3.Object)
                 err = inline_response.error
                 push!(
                     pairs_out,
-                    string(get(get(inline_response, :metadata, Dict()), :key, "")) =>
-                        "ERROR: $(get(err, :message, err))",
+                    string(get(get(inline_response, :metadata, Dict()), :key, "")) => "ERROR: $(get(err, :message, err))",
                 )
             end
         end
@@ -330,11 +327,13 @@ function extract_batch_text(result::JSON3.Object)
     # File-based job: point the caller at the output file
     file_name = get(response, :responsesFile, nothing)
     if file_name !== nothing
-        throw(ErrorException(
-            "This batch job wrote its results to file `$file_name`; call " *
-            "`download_batch_output_file(\"$file_name\")` and pass each parsed line to " *
-            "`extract_batch_text` individually.",
-        ))
+        throw(
+            ErrorException(
+                "This batch job wrote its results to file `$file_name`; call " *
+                "`download_batch_output_file(\"$file_name\")` and pass each parsed line to " *
+                "`extract_batch_text` individually.",
+            ),
+        )
     end
 
     return pairs_out

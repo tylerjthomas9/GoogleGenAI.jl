@@ -6,9 +6,7 @@
         "futuristic scifi city with lots of greenery?"
     )
 
-    response = generate_content(
-        secret_key, "gemini-3.1-flash-image", prompt; config
-    )
+    response = generate_content(secret_key, "gemini-3.1-flash-image", prompt; config)
     @test !isempty(response.images)
 
     image_path = "input/example.jpg"
