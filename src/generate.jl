@@ -22,13 +22,9 @@ function _build_request_body(
 
         for tool in config.tools
             if isa(tool, Function)
-                try
-                    decl = FunctionDeclaration(tool)
-                    api_decl = to_api_function_declaration(decl)
-                    push!(function_declarations, api_decl)
-                catch e
-                    @warn "Failed to convert function $(nameof(tool)) to declaration: $e"
-                end
+                decl = _function_to_declaration(tool)
+                api_decl = to_api_function_declaration(decl)
+                push!(function_declarations, api_decl)
             elseif isa(tool, Dict)
                 string_tool = Dict{String,Any}()
                 for (k, v) in tool

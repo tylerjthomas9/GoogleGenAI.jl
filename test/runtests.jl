@@ -1,6 +1,7 @@
 using Aqua
 using Dates
 using GoogleGenAI
+using HTTP
 using JSON3
 using Test
 
@@ -70,6 +71,29 @@ end
 
     @test isempty(response.text)
     @test isempty(response.candidates)
+end
+
+@testset "status_error includes response body" begin
+    resp = HTTP.Response(429, []; body = "quota exceeded")
+    err = try
+        GoogleGenAI.status_error(resp)
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("429", err.msg)
+    @test occursin("quota exceeded", err.msg)
+end
+
+@testset "Bare function tools build declarations" begin
+    my_tool(x) = x
+    config = GenerateContentConfig(; tools = [my_tool])
+    conversation = [Dict(:role => "user", :parts => [Dict(:text => "hi")])]
+    body = GoogleGenAI._build_request_body(conversation, config)
+    decls = body["tools"][1]["functionDeclarations"]
+    @test length(decls) == 1
+    @test decls[1]["name"] == "my_tool"
+    @test haskey(decls[1], "parameters")
 end
 
 include("test_parsing.jl")
