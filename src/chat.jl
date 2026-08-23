@@ -59,7 +59,7 @@ create_chat(model::String; kwargs...) = create_chat(GoogleProvider(), model; kwa
 function Base.show(io::IO, ::MIME"text/plain", chat::Chat)
     println(io, "Chat:")
     println(io, "  model:   \"$(chat.model)\"")
-    println(io, "  turns:   $(count(entry -> entry.role == "user", chat.history))")
+    println(io, "  turns:   $(count(entry -> entry[:role] == "user", chat.history))")
     return print(io, "  history: $(length(chat.history)) entries")
 end
 
@@ -90,14 +90,23 @@ function _execute_function(functions::Dict{String,Function}, fc::FunctionCall)
     end
 end
 
-function _record_function_exchange!(
-    conversation::Vector{<:Dict}, functions::Dict{String,Function}, function_calls::Vector
-)
-    call_parts = [
-        Dict(:functionCall => Dict(:name => fc.name, :args => fc.args)) for
-        fc in function_calls
+function _content_parts(response)::Union{Nothing,Vector{Dict{Symbol,Any}}}
+    candidates = get(response, :candidates, nothing)
+    (candidates === nothing || isempty(candidates)) && return nothing
+    content = get(candidates[1], :content, nothing)
+    (content === nothing || !haskey(content, :parts)) && return nothing
+    return [
+        Dict{Symbol,Any}(Symbol(k) => v for (k, v) in pairs(part)) for part in content.parts
     ]
-    push!(conversation, Dict(:role => "model", :parts => call_parts))
+end
+
+function _record_function_exchange!(
+    conversation::Vector{<:Dict},
+    functions::Dict{String,Function},
+    model_parts::Vector{<:Dict},
+    function_calls::Vector,
+)
+    push!(conversation, Dict(:role => "model", :parts => model_parts))
 
     response_parts = [
         Dict(
@@ -105,7 +114,7 @@ function _record_function_exchange!(
                 Dict(:name => fc.name, :response => _execute_function(functions, fc)),
         ) for fc in function_calls
     ]
-    push!(conversation, Dict(:role => "function", :parts => response_parts))
+    push!(conversation, Dict(:role => "user", :parts => response_parts))
     return conversation
 end
 
@@ -145,7 +154,11 @@ function send_message(
 
     for _ in 2:MAX_FUNCTION_CALL_ROUNDS
         (response.function_calls === nothing || isempty(chat.functions)) && break
-        _record_function_exchange!(conversation, chat.functions, response.function_calls)
+        model_parts = _content_parts(response)
+        model_parts === nothing && break
+        _record_function_exchange!(
+            conversation, chat.functions, model_parts, response.function_calls
+        )
         response = generate_content(
             chat.provider, chat.model, conversation; config=active_config
         )
@@ -156,13 +169,9 @@ function send_message(
     end
 
     append!(chat.history, [user_message])
-    candidates = get(response.candidates, 1, nothing)
-    content = isnothing(candidates) ? nothing : get(candidates, :content, nothing)
-    if !isnothing(content) && haskey(content, :parts)
-        append!(
-            chat.history,
-            [Dict(:role => "model", :parts => Vector{Any}(collect(content.parts)))],
-        )
+    model_parts = _content_parts(response)
+    if model_parts !== nothing
+        append!(chat.history, [Dict(:role => "model", :parts => model_parts)])
     end
 
     return response
@@ -193,6 +202,7 @@ function send_message_stream(
         try
             rounds = 0
             aborted = false
+            final_chunk = NamedTuple()
             while true
                 full_text = ""
                 function_calls = nothing
@@ -219,16 +229,26 @@ function send_message_stream(
                     isempty(chat.functions) ||
                     rounds >= MAX_FUNCTION_CALL_ROUNDS
                     push!(chat.history, user_message)
-                    push!(
-                        chat.history,
-                        Dict(
-                            :role => "model", :parts => [Dict(:text => String(full_text))]
-                        ),
-                    )
+                    model_parts = _content_parts(final_chunk)
+                    if model_parts !== nothing
+                        push!(chat.history, Dict(:role => "model", :parts => model_parts))
+                    else
+                        push!(
+                            chat.history,
+                            Dict(
+                                :role => "model",
+                                :parts => [Dict(:text => String(full_text))],
+                            ),
+                        )
+                    end
                     break
                 end
 
-                _record_function_exchange!(conversation, chat.functions, function_calls)
+                model_parts = _content_parts(final_chunk)
+                model_parts === nothing && break
+                _record_function_exchange!(
+                    conversation, chat.functions, model_parts, function_calls
+                )
             end
         catch e
             put!(result_channel, (error=e, text="", finish_reason="ERROR", is_final=true))
@@ -251,8 +271,9 @@ matching the behavior of `chats[].get_history(curated=True)` in the Python SDK.
 function get_history(chat::Chat; curated::Bool=false)
     curated || return copy(chat.history)
     return [
-        entry for entry in chat.history if entry.role != "function" && !(
-            entry.role == "model" && any(part -> haskey(part, :functionCall), entry.parts)
+        entry for entry in chat.history if !any(
+            part -> haskey(part, :functionCall) || haskey(part, :functionResponse),
+            entry[:parts],
         )
     ]
 end

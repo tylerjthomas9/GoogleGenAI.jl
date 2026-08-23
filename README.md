@@ -422,6 +422,43 @@ list_result = list_files()
 delete_file(upload_result[:name])
 ```
 
+## Chat Sessions
+
+Persistent multi-turn conversations.
+
+```julia
+using GoogleGenAI
+
+chat = create_chat("gemini-3.7-flash")
+response = send_message(chat, "My name is Luciana.")
+println(response.text)
+
+# History is sent automatically on each turn
+response = send_message(chat, "What's my name?")
+
+get_history(chat)                 # full history including function-call turns
+clear_history!(chat)              # start over
+```
+
+Automatic function calling: pass Julia functions when creating the chat and any
+function calls requested by the model are executed and fed back until a final answer.
+
+```julia
+functions = Dict{String,Function}(
+    "get_weather" => (; location::String) -> Dict("temperature" => 25),
+)
+chat = create_chat("gemini-3.7-flash"; functions)
+response = send_message(chat, "What's the weather in Tokyo?")
+```
+
+Streaming works the same way:
+
+```julia
+for chunk in send_message_stream(chat, "Tell me a story")
+    print(chunk.text)
+end
+```
+
 ## Batch Predictions
 
 Submit large volumes of requests asynchronously. Pass inline requests (total size < 20MB) or a JSONL file uploaded via the File API (up to 2GB).

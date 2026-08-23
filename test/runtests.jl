@@ -74,6 +74,7 @@ end
 
 include("test_parsing.jl")
 include("test_builders.jl")
+include("test_chat.jl")
 include("test_batch.jl")
 
 # Live API integration tests. Opt in with:
