@@ -149,9 +149,17 @@ function _parse_response(response)
 
     full_text = join(text_parts, "")
 
+    # Safety ratings are reported per-candidate; fall back to the top-level
+    # field (prompt feedback) if no candidate provides them.
+    safety_ratings = if !isempty(candidates) && haskey(candidates[1], :safetyRatings)
+        candidates[1].safetyRatings
+    else
+        get(body, :safetyRatings, Dict{Symbol,Any}())
+    end
+
     return (
         candidates=candidates,
-        safety_ratings=get(body, :safetyRatings, Dict{Symbol,Any}()),
+        safety_ratings=safety_ratings,
         text=full_text,
         images=image_parts,
         function_calls=isempty(function_calls) ? nothing : function_calls,

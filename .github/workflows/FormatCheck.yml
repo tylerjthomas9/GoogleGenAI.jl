@@ -9,7 +9,7 @@ on:
 jobs:
   format-check:
     name: Format check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
       - uses: julia-actions/setup-julia@latest
       - uses: actions/checkout@v4
