@@ -37,8 +37,7 @@ else
             http_options, safety_settings, max_output_tokens=50
         )
         model = "gemini-3.5-flash-lite"
-        embedding_model = "text-embedding-004"
-        # Generate text from text
+        embedding_model = "gemini-embedding-001"
         # Generate text from text
         response = generate_content(secret_key, model, "Hello"; config)
 
@@ -192,4 +191,28 @@ else
     include("test_file.jl")
     include("test_structured.jl")
     include("test_functions.jl")
+
+    @testset "Live API (text in, audio out)" begin
+        # Current Live models are audio-out only; declarations must be passed
+        # via config for mid-session tool use.
+        session = connect_live(
+            secret_key,
+            "gemini-2.5-flash-native-audio-latest";
+            config=GenerateContentConfig(; response_modalities=["AUDIO"]),
+        )
+        try
+            send_client_content(session; turns="Say exactly: PONG", turn_complete=true)
+            got_audio = false
+            complete = false
+            while !complete
+                event = recv_event(session)
+                haskey(event, :audio) && (got_audio = true)
+                sc = get(event, :serverContent, nothing)
+                sc !== nothing && get(sc, :turnComplete, false) && (complete = true)
+            end
+            @test got_audio
+        finally
+            close_live!(session)
+        end
+    end
 end

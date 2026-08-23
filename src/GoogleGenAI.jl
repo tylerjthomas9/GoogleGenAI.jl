@@ -13,6 +13,7 @@ include("cache.jl")
 include("file.jl")
 include("embed.jl")
 include("batch.jl")
+include("live.jl")
 
 export GoogleProvider,
     SafetySetting,
@@ -57,6 +58,14 @@ export GoogleProvider,
     cancel_batch_job,
     delete_batch_job,
     download_batch_output_file,
-    extract_batch_text
+    extract_batch_text,
+    LiveSession,
+    connect_live,
+    send_realtime_input,
+    send_client_content,
+    send_tool_response,
+    recv_event,
+    receive_text,
+    close_live!
 
 end # module GoogleGenAI

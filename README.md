@@ -459,6 +459,60 @@ for chunk in send_message_stream(chat, "Tell me a story")
 end
 ```
 
+## Live / Realtime Sessions
+
+Bidirectional streaming over WebSocket (`client.aio.live.connect()` equivalent).
+
+```julia
+using GoogleGenAI
+
+# Text-in / text-out turn-based session
+session = connect_live(
+    "gemini-2.5-flash";
+    config=GenerateContentConfig(response_modalities=["TEXT"]),
+)
+send_client_content(session; turns="Hello!", turn_complete=true)
+text = receive_text(session)   # collects model turn text until turnComplete
+close_live!(session)
+```
+
+Realtime audio/video input and audio output:
+
+```julia
+session = connect_live(
+    "gemini-2.5-flash-native-audio-preview-09-2025";
+    config=GenerateContentConfig(
+        response_modalities=["AUDIO"],
+        speech_config=Dict(:voiceConfig => Dict(:prebuiltVoiceConfig => Dict(:voiceName => "Kore"))),
+    ),
+)
+
+# Stream raw 16-bit PCM mono @16kHz (or pass a file path)
+send_realtime_input(session; audio=read("input.pcm"), audio_mime_type="audio/pcm;rate=16000")
+# Stream camera frames (JPEG bytes or path):
+send_realtime_input(session; video=read("frame.jpg"))
+# End of an audio stream:
+send_realtime_input(session; audio_stream_end=true)
+
+for event in session.events          # or: event = recv_event(session)
+    haskey(event, :audio) && play(event.audio[2])   # (mime_type, PCM bytes)
+    haskey(event, :interrupted) && break
+end
+close_live!(session)
+```
+
+Mid-session tool use: register Julia functions at connect time and any `toolCall`
+issued mid-conversation is executed automatically with the result sent back.
+Manual replies are also supported via `send_tool_response`.
+
+```julia
+functions = Dict{String,Function}(
+    "get_weather" => (; city::String) -> Dict("temp_c" => 25),
+)
+session = connect_live(provider, "gemini-live-model";
+    config=GenerateContentConfig(tools=Any[create_weather_declaration()]), functions)
+```
+
 ## Batch Predictions
 
 Submit large volumes of requests asynchronously. Pass inline requests (total size < 20MB) or a JSONL file uploaded via the File API (up to 2GB).
