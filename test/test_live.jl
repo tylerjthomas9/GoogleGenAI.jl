@@ -8,7 +8,9 @@ using Test
         response_modalities=["AUDIO"],
         system_instruction="Be brief.",
         temperature=0.5,
-        speech_config=Dict(:voiceConfig => Dict(:prebuiltVoiceConfig => Dict(:voiceName => "Kore"))),
+        speech_config=Dict(
+            :voiceConfig => Dict(:prebuiltVoiceConfig => Dict(:voiceName => "Kore"))
+        ),
     )
     setup = GoogleGenAI._build_live_setup("gemini-2.5-flash", config)
 
@@ -30,9 +32,13 @@ end
     weather = FunctionDeclaration(;
         name="weather",
         description="Get current weather",
-        parameters=FunctionParameter(; type="object", properties=Dict{String,Any}(), required=["city"]),
+        parameters=FunctionParameter(;
+            type="object", properties=Dict{String,Any}(), required=["city"]
+        ),
     )
-    config = GenerateContentConfig(; tools=Any[Dict(:googleSearch => Dict())], function_declarations=[weather])
+    config = GenerateContentConfig(;
+        tools=Any[Dict(:googleSearch => Dict())], function_declarations=[weather]
+    )
     tools = GoogleGenAI._build_live_tools(config)
     @test length(tools) == 2
     @test haskey(tools[1], "googleSearch")
@@ -48,10 +54,12 @@ end
 
 @testset "Live event parsing (auto tool call)" begin
     session_calls = String[]
-    functions = Dict{String,Function}("get_weather" => function (; city)
-        push!(session_calls, city)
-        return Dict{String,Any}("temp_c" => 25)
-    end)
+    functions = Dict{String,Function}(
+        "get_weather" => function (; city)
+            push!(session_calls, city)
+            return Dict{String,Any}("temp_c" => 25)
+        end
+    )
     session = GoogleGenAI.LiveSession(
         GoogleProvider(api_key="k"),
         "m",
@@ -108,7 +116,10 @@ end
     )
 
     send_realtime_input(
-        session; audio=UInt8[0x01], audio_mime_type="audio/pcm;rate=16000", video=UInt8[0x02]
+        session;
+        audio=UInt8[0x01],
+        audio_mime_type="audio/pcm;rate=16000",
+        video=UInt8[0x02],
     )
     msg = JSON3.read(take!(session.out_channel))
     chunks = msg.realtimeInput.mediaChunks
@@ -124,7 +135,9 @@ end
     @test msg.clientContent.turns[1].parts[1].text == "Hi"
     @test msg.clientContent.turnComplete === true
 
-    send_tool_response(session, Dict(:id => "7", :name => "f", :response => Dict(:ok => true)))
+    send_tool_response(
+        session, Dict(:id => "7", :name => "f", :response => Dict(:ok => true))
+    )
     msg = JSON3.read(take!(session.out_channel))
     @test msg.toolResponse.functionResponses[1].id == "7"
 

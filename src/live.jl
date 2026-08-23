@@ -128,8 +128,9 @@ function _build_live_setup(model::String, config::GenerateContentConfig)
     return setup
 end
 
-_send_frame(session::LiveSession, msg::AbstractDict) =
-    put!(session.out_channel, JSON3.write(msg))
+function _send_frame(session::LiveSession, msg::AbstractDict)
+    return put!(session.out_channel, JSON3.write(msg))
+end
 
 """
     connect_live(provider, model; config=GenerateContentConfig(), functions=Dict{String,Function}()) -> LiveSession
@@ -186,7 +187,7 @@ function connect_live(
                             HTTP.WebSockets.send(ws, frame)
                         end
                     catch e
-                        e isa InvalidStateException && return # channel closed
+                        e isa InvalidStateException && return nothing # channel closed
                         @debug "Live writer task failed" exception = e
                     end
                 end
@@ -223,7 +224,7 @@ function connect_live(
 
     # Wait for the server to confirm the session, with a hard timeout.
     timer = Timer(LIVE_SETUP_TIMEOUT) do _
-        notify(setup_done)
+        return notify(setup_done)
     end
     try
         wait(setup_done)
@@ -266,12 +267,16 @@ function _parse_live_event(session::LiveSession, frame::String)
                     "id" => String(get(fc, :id, "")),
                     "name" => String(get(fc, :name, "")),
                     "response" => _execute_live_function(
-                        session.functions, String(get(fc, :name, "")), get(fc, :args, Dict())
+                        session.functions,
+                        String(get(fc, :name, "")),
+                        get(fc, :args, Dict()),
                     ),
                 ) for fc in calls
             ]
             try
-                _send_frame(session, Dict("toolResponse" => Dict("functionResponses" => responses)))
+                _send_frame(
+                    session, Dict("toolResponse" => Dict("functionResponses" => responses))
+                )
             catch e
                 @warn "Failed to send toolResponse" exception = e
             end
@@ -290,8 +295,7 @@ function _parse_live_event(session::LiveSession, frame::String)
 end
 
 function _execute_live_function(functions::Dict{String,Function}, name::String, args)
-    !haskey(functions, name) &&
-        return Dict("error" => "Function $name not found")
+    !haskey(functions, name) && return Dict("error" => "Function $name not found")
     try
         symbol_args = string_to_symbol_keys(args)
         result = functions[name](; symbol_args...)
@@ -353,16 +357,24 @@ function send_realtime_input(
     payload = Dict{String,Any}()
 
     if audio !== nothing
-        data = audio isa AbstractVector{UInt8} ? Base64.base64encode(audio) :
-               Base64.base64encode(read(String(audio)))
-        payload["mediaChunks"] = [Dict{String,Any}("mimeType" => audio_mime_type, "data" => data)]
+        data = if audio isa AbstractVector{UInt8}
+            Base64.base64encode(audio)
+        else
+            Base64.base64encode(read(String(audio)))
+        end
+        payload["mediaChunks"] = [
+            Dict{String,Any}("mimeType" => audio_mime_type, "data" => data)
+        ]
     elseif audio_stream_end
         payload["audioStreamEnd"] = true
     end
 
     if video !== nothing
-        data = video isa AbstractVector{UInt8} ? Base64.base64encode(video) :
-               Base64.base64encode(read(String(video)))
+        data = if video isa AbstractVector{UInt8}
+            Base64.base64encode(video)
+        else
+            Base64.base64encode(read(String(video)))
+        end
         chunk = Dict{String,Any}("mimeType" => video_mime_type, "data" => data)
         if haskey(payload, "mediaChunks")
             push!(payload["mediaChunks"], chunk)
@@ -407,8 +419,10 @@ function send_client_content(
         [part isa AbstractDict ? string_key_dict(part) : part for part in turns]
     end
     msg = Dict{String,Any}(
-        "clientContent" =>
-            Dict{String,Any}("turns" => [Dict{String,Any}("role" => role, "parts" => parts)], "turnComplete" => turn_complete),
+        "clientContent" => Dict{String,Any}(
+            "turns" => [Dict{String,Any}("role" => role, "parts" => parts)],
+            "turnComplete" => turn_complete,
+        ),
     )
     _send_frame(session, msg)
     return session
@@ -422,14 +436,24 @@ matching `functions` were registered at `connect_live` time.
 """
 function send_tool_response(session::LiveSession, responses::AbstractVector)
     normalized = [
-        r isa AbstractDict ? string_key_dict(r) : throw(ArgumentError("responses must contain dicts")) for r in responses
+        if r isa AbstractDict
+            string_key_dict(r)
+        else
+            throw(ArgumentError("responses must contain dicts"))
+        end for r in responses
     ]
-    _send_frame(session, Dict{String,Any}("toolResponse" => Dict{String,Any}("functionResponses" => normalized)))
+    _send_frame(
+        session,
+        Dict{String,Any}(
+            "toolResponse" => Dict{String,Any}("functionResponses" => normalized)
+        ),
+    )
     return session
 end
 
-send_tool_response(session::LiveSession, response::AbstractDict) =
-    send_tool_response(session, [response])
+function send_tool_response(session::LiveSession, response::AbstractDict)
+    return send_tool_response(session, [response])
+end
 
 """
     recv_event(session) -> Dict{Symbol,Any}
