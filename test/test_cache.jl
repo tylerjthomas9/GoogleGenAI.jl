@@ -1,5 +1,5 @@
 @testset "Content Caching" begin
-    model = "gemini-1.5-flash-8b"
+    model = "gemini-3.5-flash-lite"
     text = read("input/example.txt", String) * "<><"^13_860
 
     # 1) Create the cache

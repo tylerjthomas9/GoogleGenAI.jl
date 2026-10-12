@@ -8,9 +8,12 @@ include("utils.jl")
 include("core.jl")
 include("functions.jl")
 include("generate.jl")
+include("chat.jl")
 include("cache.jl")
 include("file.jl")
 include("embed.jl")
+include("batch.jl")
+include("live.jl")
 
 export GoogleProvider,
     SafetySetting,
@@ -25,6 +28,12 @@ export GoogleProvider,
     execute_parallel_function_calls,
     generate_content,
     generate_content_stream,
+    Chat,
+    create_chat,
+    send_message,
+    send_message_stream,
+    get_history,
+    clear_history!,
     count_tokens,
     embed_content,
     list_models,
@@ -41,6 +50,22 @@ export GoogleProvider,
     GOOGLE_SEARCH,
     CODE_EXECUTION,
     FUNCTION_CALLING,
-    is_native_tool
+    is_native_tool,
+    BatchRequest,
+    create_batch_job,
+    get_batch_job,
+    poll_batch_job,
+    cancel_batch_job,
+    delete_batch_job,
+    download_batch_output_file,
+    extract_batch_text,
+    LiveSession,
+    connect_live,
+    send_realtime_input,
+    send_client_content,
+    send_tool_response,
+    recv_event,
+    receive_text,
+    close_live!
 
 end # module GoogleGenAI

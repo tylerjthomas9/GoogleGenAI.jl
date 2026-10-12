@@ -20,7 +20,7 @@ Create a cached content resource that can be reused in subsequent requests.
 
 # Arguments
 - `provider::AbstractGoogleProvider` or `api_key::String`: The provider instance for API requests or your Google API key as a string.
-- `model_name::String`: The model to use (e.g. "gemini-1.5-flash-001").
+- `model_name::String`: The model to use (e.g. "gemini-2.5-flash-lite").
 - `content::Union{String,Vector{Dict{Symbol,Any}},Dict{String,Any}}`: The content to cache, which can be a single string, an array of conversation messages, or a raw content dictionary.
 - `ttl::String`: Time-to-live duration for the cache. Defaults to `"300s"`.
 - `system_instruction::String`: An optional system instruction for the model.

@@ -22,13 +22,9 @@ function _build_request_body(
 
         for tool in config.tools
             if isa(tool, Function)
-                try
-                    decl = FunctionDeclaration(tool)
-                    api_decl = to_api_function_declaration(decl)
-                    push!(function_declarations, api_decl)
-                catch e
-                    @warn "Failed to convert function $(nameof(tool)) to declaration: $e"
-                end
+                decl = _function_to_declaration(tool)
+                api_decl = to_api_function_declaration(decl)
+                push!(function_declarations, api_decl)
             elseif isa(tool, Dict)
                 string_tool = Dict{String,Any}()
                 for (k, v) in tool
@@ -149,9 +145,17 @@ function _parse_response(response)
 
     full_text = join(text_parts, "")
 
+    # Safety ratings are reported per-candidate; fall back to the top-level
+    # field (prompt feedback) if no candidate provides them.
+    safety_ratings = if !isempty(candidates) && haskey(candidates[1], :safetyRatings)
+        candidates[1].safetyRatings
+    else
+        get(body, :safetyRatings, Dict{Symbol,Any}())
+    end
+
     return (
         candidates=candidates,
-        safety_ratings=get(body, :safetyRatings, Dict{Symbol,Any}()),
+        safety_ratings=safety_ratings,
         text=full_text,
         images=image_parts,
         function_calls=isempty(function_calls) ? nothing : function_calls,
@@ -270,7 +274,7 @@ function _image_inline_parts(; image_path::String="", images::AbstractVector=Nam
         end
     end
 
-    parts
+    return parts
 end
 
 """

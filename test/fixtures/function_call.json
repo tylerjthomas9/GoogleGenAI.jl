@@ -1,0 +1,25 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "functionCall": {
+              "name": "get_current_weather",
+              "args": "{\"location\": \"Tokyo\", \"unit\": \"celsius\"}"
+            }
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 25,
+    "candidatesTokenCount": 12,
+    "totalTokenCount": 37
+  },
+  "modelVersion": "gemini-3.5-flash-lite"
+}

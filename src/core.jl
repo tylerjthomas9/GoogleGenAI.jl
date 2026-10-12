@@ -49,7 +49,8 @@ struct BlockedPromptException <: Exception end
 
 function status_error(resp, log=nothing)
     logs = !isnothing(log) ? ": $log" : ""
-    return error("Request failed with status $(resp.status) $(resp.message) $logs")
+    body = resp.body isa AbstractString ? String(resp.body) : String(copy(resp.body))
+    return error("Request failed with status $(resp.status): $body$logs")
 end
 
 const VALID_CATEGORIES = [
@@ -237,7 +238,7 @@ end
 
 Configuration for thinking features in Gemini models.
 
-The Gemini 2.5 series models use an internal "thinking process" during response generation. 
+The Gemini models use an internal "thinking process" during response generation.
 This process contributes to their improved reasoning capabilities and helps them use multi-step 
 planning to solve complex tasks.
 

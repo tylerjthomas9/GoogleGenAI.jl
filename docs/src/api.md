@@ -37,4 +37,12 @@ GOOGLE_SEARCH
 CODE_EXECUTION
 FUNCTION_CALLING
 is_native_tool
+BatchRequest
+create_batch_job
+get_batch_job
+poll_batch_job
+cancel_batch_job
+delete_batch_job
+download_batch_output_file
+extract_batch_text
 ```

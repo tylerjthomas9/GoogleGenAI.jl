@@ -1,0 +1,31 @@
+name: JET
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/JET.yml'
+      - 'test/**'
+      - 'src/**'
+      - 'Project.toml'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/JET.yml'
+      - 'test/**'
+      - 'src/**'
+      - 'Project.toml'
+jobs:
+  jet:
+    runs-on: ubuntu-slim
+    continue-on-error: true # full-package analysis still has known false positives; triage before removing this
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v1
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v1
+      - uses: julia-actions/julia-buildpkg@v1
+      - name: JET static analysis
+        run: julia --project=. -e 'using Pkg; Pkg.add("JET"); using JET, GoogleGenAI; report_package(GoogleGenAI)'

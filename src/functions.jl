@@ -24,6 +24,21 @@ function FunctionDeclaration(
 end
 
 """
+    _function_to_declaration(tool::Function) -> FunctionDeclaration
+
+Build a minimal `FunctionDeclaration` from a plain Julia function, using the
+function's name and an empty object parameter schema. For typed schemas, pass
+a `FunctionDeclaration` or a `Dict` instead.
+"""
+function _function_to_declaration(tool::Function)
+    return FunctionDeclaration(;
+        name=string(nameof(tool)),
+        description=nothing,
+        parameters=FunctionParameter(; type="object"),
+    )
+end
+
+"""
     string_to_symbol_keys(dict::Dict{String, Any}) -> Dict{Symbol, Any}
 
 Convert a dictionary with string keys to one with symbol keys.
