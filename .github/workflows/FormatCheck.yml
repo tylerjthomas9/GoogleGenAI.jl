@@ -11,8 +11,10 @@ jobs:
     name: Format check
     runs-on: ubuntu-slim
     steps:
-      - uses: julia-actions/setup-julia@latest
       - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v1
+        with:
+          version: '1'
       - name: Instantiate `format` environment and format
         run: |
           julia  --project=format --color=yes -e 'using Pkg; Pkg.instantiate()'

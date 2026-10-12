@@ -74,7 +74,7 @@ end
 end
 
 @testset "status_error includes response body" begin
-    resp = HTTP.Response(429, []; body = "quota exceeded")
+    resp = HTTP.Response(429, []; body="quota exceeded")
     err = try
         GoogleGenAI.status_error(resp)
     catch e
@@ -87,7 +87,7 @@ end
 
 @testset "Bare function tools build declarations" begin
     my_tool(x) = x
-    config = GenerateContentConfig(; tools = [my_tool])
+    config = GenerateContentConfig(; tools=[my_tool])
     conversation = [Dict(:role => "user", :parts => [Dict(:text => "hi")])]
     body = GoogleGenAI._build_request_body(conversation, config)
     decls = body["tools"][1]["functionDeclarations"]
