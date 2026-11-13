@@ -1,9 +1,9 @@
-function with_sse_server(f, streams)
+function with_sse_server(f, streams; status=200)
     bodies = []
     server = HTTP.serve!("127.0.0.1", 18753; listenany=true, stream=true) do http
         push!(bodies, JSON3.read(read(http)))
         payload = join("data: $(JSON3.write(e))\r\n\r\n" for e in streams[length(bodies)])
-        HTTP.setstatus(http, 200)
+        HTTP.setstatus(http, status)
         HTTP.setheader(http, "Content-Type" => "text/event-stream")
         HTTP.startwrite(http)
         for i in 1:37:lastindex(payload)
@@ -57,6 +57,36 @@ end
         @test chunks[end].full_text == join(texts)
         @test chunks[end].finish_reason == "STOP"
         @test chunks[end].usage_metadata.totalTokenCount == 7
+    end
+end
+
+@testset "Streaming surfaces an error sent mid-stream" begin
+    overloaded = Dict(
+        "error" => Dict("code" => 503, "message" => "The model is overloaded")
+    )
+
+    with_sse_server([[model_event(text_part("Hel")), overloaded]]) do provider, _
+        chunks = collect(generate_content_stream(provider, "test-model", "hi"))
+
+        @test [c.text for c in chunks] == ["Hel", ""]
+        @test chunks[end].finish_reason == "ERROR"
+        msg = sprint(showerror, chunks[end].error)
+        @test occursin("The model is overloaded", msg)
+        @test !occursin("key=test", msg)
+    end
+end
+
+@testset "Streaming HTTP errors keep the response body" begin
+    invalid_key = Dict("error" => Dict("code" => 400, "message" => "API key not valid"))
+
+    with_sse_server([[invalid_key]]; status=400) do provider, _
+        chunks = collect(generate_content_stream(provider, "test-model", "hi"))
+
+        @test length(chunks) == 1
+        msg = sprint(showerror, only(chunks).error)
+        @test occursin("status 400", msg)
+        @test occursin("API key not valid", msg)
+        @test !occursin("key=test", msg)
     end
 end
 

@@ -330,8 +330,7 @@ function _take_lines!(buf::Vector{UInt8})
     return lines
 end
 
-function _parse_stream_chunk(data_str::AbstractString, status)
-    chunk_data = JSON3.read(data_str)
+function _parse_stream_chunk(chunk_data, status)
     candidates = get(chunk_data, :candidates, ())
     isempty(candidates) && return nothing
 
@@ -351,30 +350,37 @@ function _parse_stream_chunk(data_str::AbstractString, status)
 end
 
 """
-    generate_content_stream(provider::AbstractGoogleProvider, model_name::String, prompt::String; image_path::String="", config=GenerateContentConfig()) -> Channel
-    generate_content_stream(api_key::String, model_name::String, prompt::String; image_path::String="", config=GenerateContentConfig()) -> Channel
-    
-    generate_content_stream(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; image_path::String="", config=GenerateContentConfig()) -> Channel
-    generate_content_stream(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; image_path::String="", config=GenerateContentConfig()) -> Channel
+    generate_content_stream(provider::AbstractGoogleProvider, model_name::String, prompt::String; image_path::String="", images=NamedTuple[], config=GenerateContentConfig()) -> Channel
+    generate_content_stream(api_key::String, model_name::String, prompt::String; image_path::String="", images=NamedTuple[], config=GenerateContentConfig()) -> Channel
+    generate_content_stream(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; config=GenerateContentConfig()) -> Channel
+    generate_content_stream(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; config=GenerateContentConfig()) -> Channel
 
 Generate content in a streaming fashion, returning partial results as they become available.
 
 # Arguments
 - `provider::AbstractGoogleProvider`: The provider instance for API requests.
-- `api_key::String`: Your Google API key as a string. 
+- `api_key::String`: Your Google API key as a string.
 - `model_name::String`: The model to use for content generation.
-- `prompt::String`: The text prompt to accompany the image.
+- `prompt::String`: The text prompt.
+- `conversation::Vector{Dict{Symbol,Any}}`: The conversation history.
 
 # Keyword Arguments
-- `image_path::String` (optional): The path to the image file to include in the request.
+- `image_path::String` (optional, legacy): The path to an image file to send with `prompt`.
+- `images::AbstractVector` (optional): Images to send with `prompt`. Supports NamedTuples with `path` and `mime_type` keys.
 - `config::GenerateContentConfig` (optional): Configuration for the generation request.
 
 # Returns
-- `Channel`: A channel that yields partial text responses as they become available.
-  Each item in the channel is a named tuple with the following fields:
-  - `text::String`: The partial text response.
-  - `finish_reason::Union{String,Nothing}`: The reason why generation stopped, if applicable.
-  - `is_final::Bool`: Whether this is the final chunk of the response.
+- `Channel`: A channel that yields one named tuple per streamed chunk, with fields:
+  - `text::String`: The text in this chunk.
+  - `full_text::String`: All text received so far.
+  - `function_calls`: The function calls received so far, or `nothing`.
+  - `finish_reason`: Why generation stopped; `nothing` until the last chunk.
+  - `usage_metadata`: Token counts reported with this chunk.
+  - `candidates`, `safety_ratings`, `status`: The raw candidates, safety ratings and HTTP status.
+
+  If the request fails, including an error sent partway through the stream, the last
+  item instead has an `error` field holding the exception, with `text=""` and
+  `finish_reason="ERROR"`.
 """
 function generate_content_stream(
     provider::AbstractGoogleProvider,
@@ -403,8 +409,8 @@ function generate_content_stream(
                 response = HTTP.startread(stream)
 
                 if response.status >= 400
-                    error_msg = "HTTP Error $(response.status): $(String(response.body))"
-                    throw(ErrorException(error_msg))
+                    response.body = read(stream)
+                    status_error(response)
                 end
 
                 pending = UInt8[]
@@ -423,20 +429,26 @@ function generate_content_stream(
                         data_str = SubString(line, 7)  # Remove "data: " prefix
                         data_str == "[DONE]" && continue
 
-                        parsed = try
-                            _parse_stream_chunk(data_str, response.status)
+                        chunk_data = try
+                            JSON3.read(data_str)
                         catch e
                             @warn "Failed to parse chunk: $e"
-                            nothing
+                            continue
                         end
+                        haskey(chunk_data, :error) &&
+                            error("Stream returned an error: $data_str")
+
+                        parsed = _parse_stream_chunk(chunk_data, response.status)
                         parsed === nothing || put!(processed_channel, parsed)
                     end
                 end
             end
 
         catch e
+            err = e isa HTTP.RequestError ? e.error : e
             put!(
-                processed_channel, (error=e, text="", finish_reason="ERROR", is_final=true)
+                processed_channel,
+                (error=err, text="", finish_reason="ERROR", is_final=true),
             )
         finally
             close(processed_channel)
