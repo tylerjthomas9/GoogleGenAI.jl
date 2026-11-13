@@ -4,6 +4,7 @@ using Dates
 using GoogleGenAI
 using HTTP
 using JSON3
+using Sockets
 using Test
 
 @testset "Internal Functions" begin
@@ -111,7 +112,8 @@ end
 
 @testset "Requests send the API key in a header and use the right paths" begin
     requests = []
-    server = HTTP.serve!("127.0.0.1", 18754; listenany=true) do req
+    port, socket = Sockets.listenany(Sockets.localhost, 18754)
+    server = HTTP.serve!(socket) do req
         push!(
             requests,
             (method=req.method, target=req.target, key=HTTP.header(req, "x-goog-api-key")),
@@ -119,7 +121,6 @@ end
         return HTTP.Response(200, """{"files": []}""")
     end
     try
-        port = HTTP.Servers.port(server)
         provider = GoogleProvider(; api_key="test", base_url="http://127.0.0.1:$port")
         delete_batch_job(provider, "batches/123")
         list_files(provider; page_token="next")
