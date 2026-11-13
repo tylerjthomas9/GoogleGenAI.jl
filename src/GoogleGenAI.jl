@@ -17,6 +17,7 @@ include("batch.jl")
 include("live.jl")
 
 export GoogleProvider,
+    APIError,
     SafetySetting,
     ThinkingConfig,
     GenerateContentConfig,

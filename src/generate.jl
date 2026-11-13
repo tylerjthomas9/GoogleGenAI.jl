@@ -397,6 +397,7 @@ function generate_content_stream(
                 url;
                 headers=_headers(provider),
                 query=Dict("alt" => "sse"),
+                status_exception=false,
                 config.http_options...,
             ) do stream
                 write(stream, JSON3.write(body))
@@ -404,10 +405,7 @@ function generate_content_stream(
 
                 response = HTTP.startread(stream)
 
-                if response.status >= 400
-                    response.body = read(stream)
-                    status_error(response)
-                end
+                response.status >= 400 && throw(_api_error(response.status, read(stream)))
 
                 pending = UInt8[]
                 while !eof(stream)
@@ -432,7 +430,7 @@ function generate_content_stream(
                             continue
                         end
                         haskey(chunk_data, :error) &&
-                            error("Stream returned an error: $data_str")
+                            throw(_api_error(response.status, data_str))
 
                         parsed = _parse_stream_chunk(chunk_data, response.status)
                         parsed === nothing || put!(processed_channel, parsed)

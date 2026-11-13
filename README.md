@@ -191,6 +191,23 @@ if !isempty(response.images)
 end
 ```
 
+### Error Handling
+
+Failed requests throw an `APIError` with the HTTP `status`, the API's status `code`
+(e.g. `"RESOURCE_EXHAUSTED"`), and its `message`:
+
+```julia
+try
+    generate_content(model, prompt)
+catch e
+    if e isa APIError && e.status == 429
+        sleep(30)  # rate limited; try again later
+    else
+        rethrow()
+    end
+end
+```
+
 ### Count Tokens
 ```julia
 using GoogleGenAI

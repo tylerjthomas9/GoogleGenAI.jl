@@ -156,10 +156,7 @@ function connect_live(
             end
         catch e
             if !session.setup_complete
-                put!(
-                    session.events,
-                    Dict{Symbol,Any}(:error => "WebSocket connection failed: $e"),
-                )
+                put!(session.events, Dict{Symbol,Any}(:error => _live_error(e)))
                 notify(setup_done)
             end
             @debug "Live session connection ended" exception = e
@@ -185,12 +182,22 @@ function connect_live(
         # Give the error event (if any) a moment to surface.
         if isready(session.events)
             event = take!(session.events)
-            haskey(event, :error) && error(event[:error])
+            haskey(event, :error) && throw(event[:error])
         end
         error("Timed out waiting for setupComplete after $LIVE_SETUP_TIMEOUT seconds")
     end
 
     return session
+end
+
+# Turn a failed handshake or an error close frame into an `APIError`.
+function _live_error(e)
+    e isa HTTP.RequestError && (e = e.error)
+    e isa HTTP.StatusError && return _api_error(e.response)
+    if e isa HTTP.WebSockets.WebSocketError && e.message isa HTTP.WebSockets.CloseFrameBody
+        return APIError(e.message.status, "", e.message.message, nothing)
+    end
+    return e
 end
 
 function connect_live(api_key::String, model::String; kwargs...)
@@ -403,9 +410,7 @@ function receive_text(session::LiveSession; include_interrupted::Bool=true)
     pieces = String[]
     while true
         event = recv_event(session)
-        if haskey(event, :error)
-            error(event[:error])
-        end
+        haskey(event, :error) && throw(event[:error])
         if haskey(event, :serverContent)
             sc = event[:serverContent]
             model_turn = get(sc, :modelTurn, nothing)

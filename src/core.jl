@@ -44,12 +44,66 @@ function Base.show(io::IO, ::MIME"text/plain", provider::GoogleProvider)
     return print(io, "  api_version: \"$(provider.api_version)\"")
 end
 
-struct BlockedPromptException <: Exception end
+"""
+    APIError <: Exception
 
-function status_error(resp, log=nothing)
-    logs = !isnothing(log) ? ": $log" : ""
-    body = resp.body isa AbstractString ? String(resp.body) : String(copy(resp.body))
-    return error("Request failed with status $(resp.status): $body$logs")
+An error returned by the Gemini API.
+
+# Fields
+- `status::Int`: The HTTP status code, e.g. `429`.
+- `code::String`: The API status name, e.g. `"RESOURCE_EXHAUSTED"` (empty if not given).
+- `message::String`: The error message from the API.
+- `details::Any`: Extra error details from the API, or `nothing`.
+
+```julia
+try
+    generate_content(model, prompt)
+catch e
+    e isa APIError && e.status == 429 && retry_later()
+end
+```
+"""
+struct APIError <: Exception
+    status::Int
+    code::String
+    message::String
+    details::Any
+end
+
+function Base.showerror(io::IO, e::APIError)
+    print(io, "APIError: ", e.status)
+    isempty(e.code) || print(io, " ", e.code)
+    return print(io, ": ", e.message)
+end
+
+_body_string(body::AbstractString) = String(body)
+_body_string(body::AbstractVector{UInt8}) = String(copy(body))
+
+# Build an `APIError` from Google's `{"error": {"code", "message", "status", "details"}}`
+# payload. Streaming endpoints wrap it in an array; anything else is kept as the message.
+function _api_error(status::Integer, body)
+    text = _body_string(body)
+    parsed = try
+        JSON3.read(text)
+    catch
+        nothing
+    end
+    parsed isa JSON3.Array && length(parsed) == 1 && (parsed = parsed[1])
+    err = parsed isa JSON3.Object ? get(parsed, :error, nothing) : nothing
+    err isa JSON3.Object ||
+        return APIError(status, "", isempty(text) ? "HTTP $status" : text, nothing)
+    return APIError(
+        Int(something(get(err, :code, nothing), status)),
+        String(something(get(err, :status, nothing), "")),
+        String(something(get(err, :message, nothing), text)),
+        get(err, :details, nothing),
+    )
+end
+_api_error(response::HTTP.Response) = _api_error(response.status, response.body)
+
+function _check_status(response::HTTP.Response)
+    response.status >= 400 && throw(_api_error(response))
+    return response
 end
 
 const VALID_CATEGORIES = [
@@ -342,13 +396,14 @@ function _request(
     url = "$(provider.base_url)/$(provider.api_version)/$endpoint"
     serialized_body = isempty(body) ? UInt8[] : JSON3.write(body)
     response = HTTP.request(
-        method, url; headers=_headers(provider), body=serialized_body, http_kwargs...
+        method,
+        url;
+        headers=_headers(provider),
+        body=serialized_body,
+        status_exception=false,
+        http_kwargs...,
     )
-
-    if response.status >= 400
-        status_error(response, String(response.body))
-    end
-    return response
+    return _check_status(response)
 end
 
 function _extract_text(response::JSON3.Object)
