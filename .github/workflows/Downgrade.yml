@@ -3,24 +3,38 @@ on:
   pull_request:
     branches:
       - main
-    paths-ignore:
-      - 'docs/**'
+    paths:
+      - '.github/workflows/Downgrade.yml'
+      - 'test/**'
+      - 'src/**'
+      - 'Project.toml'
   push:
     branches:
       - main
-    paths-ignore:
-      - 'docs/**'
+    paths:
+      - '.github/workflows/Downgrade.yml'
+      - 'test/**'
+      - 'src/**'
+      - 'Project.toml'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     runs-on: ubuntu-slim
+    timeout-minutes: 15
+    permissions:
+      actions: write
+      contents: read
     strategy:
       matrix:
         version: ['1']
     steps:
-      - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v1
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
         with:
           version: ${{ matrix.version }}
+      - uses: julia-actions/cache@v3
       - uses: cjdoris/julia-downgrade-compat-action@v1
         with:
           skip: Pkg,TOML
