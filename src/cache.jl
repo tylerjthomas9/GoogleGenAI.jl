@@ -115,7 +115,7 @@ function list_cached_content(provider::AbstractGoogleProvider; http_kwargs=Named
 end
 
 function list_cached_content(api_key::String; http_kwargs=NamedTuple())
-    return list_cached_content(GoogleProvider(; api_key); http_kwargs...)
+    return list_cached_content(GoogleProvider(; api_key); http_kwargs)
 end
 
 list_cached_content() = list_cached_content(GoogleProvider())
@@ -145,11 +145,11 @@ function get_cached_content(
 end
 
 function get_cached_content(api_key::String, cache_name::String; http_kwargs=NamedTuple())
-    return get_cached_content(GoogleProvider(; api_key), cache_name; http_kwargs...)
+    return get_cached_content(GoogleProvider(; api_key), cache_name; http_kwargs)
 end
 
 function get_cached_content(cache_name::String; http_kwargs=NamedTuple())
-    return get_cached_content(GoogleProvider(), cache_name; http_kwargs...)
+    return get_cached_content(GoogleProvider(), cache_name; http_kwargs)
 end
 
 """
@@ -183,11 +183,11 @@ end
 function update_cached_content(
     api_key::String, cache_name::String, ttl::String; http_kwargs=NamedTuple()
 )
-    return update_cached_content(GoogleProvider(; api_key), cache_name, ttl; http_kwargs...)
+    return update_cached_content(GoogleProvider(; api_key), cache_name, ttl; http_kwargs)
 end
 
 function update_cached_content(cache_name::String, ttl::String; http_kwargs=NamedTuple())
-    return update_cached_content(GoogleProvider(), cache_name, ttl; http_kwargs...)
+    return update_cached_content(GoogleProvider(), cache_name, ttl; http_kwargs)
 end
 
 """
@@ -216,9 +216,9 @@ end
 function delete_cached_content(
     api_key::String, cache_name::String; http_kwargs=NamedTuple()
 )
-    return delete_cached_content(GoogleProvider(; api_key), cache_name; http_kwargs...)
+    return delete_cached_content(GoogleProvider(; api_key), cache_name; http_kwargs)
 end
 
 function delete_cached_content(cache_name::String; http_kwargs=NamedTuple())
-    return delete_cached_content(GoogleProvider(), cache_name; http_kwargs...)
+    return delete_cached_content(GoogleProvider(), cache_name; http_kwargs)
 end

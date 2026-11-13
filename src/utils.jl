@@ -36,3 +36,8 @@ function _get_mime_type(file_path::String)::String
     )
     return get(mime_map, ext, "application/octet-stream")
 end
+
+# Text parts that make up the model's answer (thought summaries excluded).
+function _is_answer_text(part)
+    return get(part, :text, nothing) !== nothing && get(part, :thought, false) !== true
+end

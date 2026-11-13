@@ -60,7 +60,7 @@ end
     provider = GoogleProvider(api_key="k")
     url = GoogleGenAI._live_websocket_url(provider)
     @test startswith(url, "wss://generativelanguage.googleapis.com/ws/")
-    @test occursin("BidiGenerateContent?key=k", url)
+    @test endswith(url, "BidiGenerateContent")  # key goes in a header
 end
 
 @testset "Live event parsing (auto tool call)" begin

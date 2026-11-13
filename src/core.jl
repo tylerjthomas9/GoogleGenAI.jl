@@ -291,7 +291,6 @@ Optional model configuration parameters.
 - `media_resolution::Union{Nothing,String}`: Specified media resolution.
 - `speech_config::Union{Nothing,Dict{Symbol,Any}}`: Speech generation configuration.
 - `audio_timestamp::Union{Nothing,Bool}`: Whether to include audio timestamp in the request.
-- `automatic_function_calling::Union{Nothing,Dict{Symbol,Any}}`: Configuration for automatic function calling.
 - `thinking_config::Union{Nothing,ThinkingConfig}`: Thinking features configuration.
 """
 Base.@kwdef struct GenerateContentConfig
@@ -321,8 +320,12 @@ Base.@kwdef struct GenerateContentConfig
     media_resolution::Union{Nothing,String} = nothing
     speech_config::Union{Nothing,Dict{Symbol,Any}} = nothing
     audio_timestamp::Union{Nothing,Bool} = nothing
-    automatic_function_calling::Union{Nothing,Dict{Symbol,Any}} = nothing
     thinking_config::Union{Nothing,ThinkingConfig} = nothing
+end
+
+# The API key goes in a header, never the URL, so it stays out of logs and errors.
+function _headers(provider::AbstractGoogleProvider)
+    return Dict("Content-Type" => "application/json", "x-goog-api-key" => provider.api_key)
 end
 
 function _request(
@@ -337,13 +340,9 @@ function _request(
     end
 
     url = "$(provider.base_url)/$(provider.api_version)/$endpoint"
-    headers = Dict(
-        "Content-Type" => "application/json", "x-goog-api-key" => provider.api_key
-    )
-
     serialized_body = isempty(body) ? UInt8[] : JSON3.write(body)
     response = HTTP.request(
-        method, url; headers=headers, body=serialized_body, http_kwargs...
+        method, url; headers=_headers(provider), body=serialized_body, http_kwargs...
     )
 
     if response.status >= 400
@@ -403,42 +402,38 @@ function to_api_function_declaration(func_decl::FunctionDeclaration)
     return decl
 end
 
+# `GenerateContentConfig` field => `generationConfig` API key.
+const GENERATION_CONFIG_FIELDS = (
+    :temperature => "temperature",
+    :top_p => "topP",
+    :top_k => "topK",
+    :candidate_count => "candidateCount",
+    :max_output_tokens => "maxOutputTokens",
+    :stop_sequences => "stopSequences",
+    :response_logprobs => "responseLogprobs",
+    :logprobs => "logprobs",
+    :presence_penalty => "presencePenalty",
+    :frequency_penalty => "frequencyPenalty",
+    :seed => "seed",
+    :response_mime_type => "responseMimeType",
+    :response_schema => "responseSchema",
+    :response_modalities => "responseModalities",
+    :routing_config => "routingConfig",
+    :media_resolution => "mediaResolution",
+    :speech_config => "speechConfig",
+    :audio_timestamp => "audioTimestamp",
+    :thinking_config => "thinkingConfig",
+)
+
 """
 Extract generation config parameters from the config
 """
 function _build_generation_config(config::GenerateContentConfig)
     generation_config = Dict{String,Any}()
-    config.temperature !== nothing &&
-        (generation_config["temperature"] = config.temperature)
-    config.top_p !== nothing && (generation_config["topP"] = config.top_p)
-    config.top_k !== nothing && (generation_config["topK"] = config.top_k)
-    config.candidate_count !== nothing &&
-        (generation_config["candidateCount"] = config.candidate_count)
-    config.max_output_tokens !== nothing &&
-        (generation_config["maxOutputTokens"] = config.max_output_tokens)
-    config.stop_sequences !== nothing &&
-        (generation_config["stopSequences"] = config.stop_sequences)
-    config.response_logprobs !== nothing &&
-        (generation_config["responseLogprobs"] = config.response_logprobs)
-    config.logprobs !== nothing && (generation_config["logprobs"] = config.logprobs)
-    config.response_mime_type !== nothing &&
-        (generation_config["responseMimeType"] = config.response_mime_type)
-    config.response_schema !== nothing &&
-        (generation_config["responseSchema"] = config.response_schema)
-    config.response_modalities !== nothing &&
-        (generation_config["responseModalities"] = config.response_modalities)
-    config.routing_config !== nothing &&
-        (generation_config["routingConfig"] = config.routing_config)
-    config.media_resolution !== nothing &&
-        (generation_config["mediaResolution"] = config.media_resolution)
-    config.speech_config !== nothing &&
-        (generation_config["speechConfig"] = config.speech_config)
-    config.audio_timestamp !== nothing &&
-        (generation_config["audioTimestamp"] = config.audio_timestamp)
-    config.automatic_function_calling !== nothing &&
-        (generation_config["automaticFunctionCalling"] = config.automatic_function_calling)
-    config.thinking_config !== nothing &&
-        (generation_config["thinkingConfig"] = config.thinking_config)
+    for (field, key) in GENERATION_CONFIG_FIELDS
+        value = getfield(config, field)
+        value === nothing || (generation_config[key] = value)
+    end
     return generation_config
 end
 

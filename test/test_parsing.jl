@@ -39,3 +39,14 @@ end
     @test img.mime_type == "image/png"
     @test img.data[1:4] == UInt8[0x89, 0x50, 0x4e, 0x47]  # PNG magic bytes
 end
+
+@testset "Text excludes thoughts and keeps whitespace-only parts" begin
+    parts = [
+        Dict("text" => "Thinking...", "thought" => true),
+        Dict("text" => "Line one"),
+        Dict("text" => "\n"),
+        Dict("text" => "Line two"),
+    ]
+    body = JSON3.write(Dict("candidates" => [Dict("content" => Dict("parts" => parts))]))
+    @test GoogleGenAI._parse_response(FakeResponse(body)).text == "Line one\nLine two"
+end
