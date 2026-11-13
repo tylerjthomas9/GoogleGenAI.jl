@@ -12,6 +12,7 @@ include("chat.jl")
 include("cache.jl")
 include("file.jl")
 include("embed.jl")
+include("decisions.jl")
 include("batch.jl")
 include("live.jl")
 
@@ -36,6 +37,13 @@ export GoogleProvider,
     clear_history!,
     count_tokens,
     embed_content,
+    NoulQuestion,
+    ChoiceQuestion,
+    ScoreQuestion,
+    NoulAnswer,
+    ChoiceAnswer,
+    ScoreAnswer,
+    create_decision,
     list_models,
     create_cached_content,
     list_cached_content,

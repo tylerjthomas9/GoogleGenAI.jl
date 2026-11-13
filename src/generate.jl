@@ -68,7 +68,6 @@ function _parse_response(response)
                     name = get(fc, :name, "")
                     args_str = get(fc, :args, "{}")
 
-                    # Parse args - it should be a JSON object already
                     args = if typeof(args_str) <: AbstractDict
                         Dict{String,Any}(String(k) => v for (k, v) in pairs(args_str))
                     else
@@ -169,7 +168,6 @@ function _convert_contents(contents::AbstractVector)
     return parts
 end
 
-# DRY helpers for image handling
 function _infer_mime_from_ext(path::String)
     ext = lowercase(splitext(path)[2])
     if ext in [".jpg", ".jpeg"]
@@ -184,7 +182,6 @@ end
 function _image_inline_parts(; image_path::String="", images::AbstractVector=NamedTuple[])
     parts = Vector{Dict{String,Any}}()
 
-    # Handle legacy single image_path
     if !isempty(image_path)
         mime = _infer_mime_from_ext(image_path)
         push!(
@@ -196,7 +193,6 @@ function _image_inline_parts(; image_path::String="", images::AbstractVector=Nam
         )
     end
 
-    # Handle new images vector with named tuples
     for img in images
         if haskey(img, :path)
             mime = haskey(img, :mime_type) ? img.mime_type : _infer_mime_from_ext(img.path)

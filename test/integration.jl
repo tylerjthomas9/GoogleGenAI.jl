@@ -38,10 +38,8 @@ else
         )
         model = "gemini-3.5-flash-lite"
         embedding_model = "gemini-embedding-001"
-        # Generate text from text
         response = generate_content(secret_key, model, "Hello"; config)
 
-        # Generate text from text+image
         response = generate_content(
             secret_key,
             model,
@@ -50,7 +48,6 @@ else
             config,
         )
 
-        # Multi-turn conversation
         conversation = [Dict(:role => "user", :parts => [Dict(:text => "Hello")])]
         response = generate_content(secret_key, model, conversation; config)
 
@@ -58,11 +55,11 @@ else
         @test n_tokens == 1
 
         embeddings = embed_content(secret_key, embedding_model, "Hello")
-        @test size(embeddings.values) == (768,)
+        @test size(embeddings.values) == (3072,)
 
         embeddings = embed_content(secret_key, embedding_model, ["Hello", "world"])
-        @test size(embeddings.values[1]) == (768,)
-        @test size(embeddings.values[2]) == (768,)
+        @test size(embeddings.values[1]) == (3072,)
+        @test size(embeddings.values[2]) == (3072,)
 
         models = list_models(secret_key)
         @test length(models) > 0
@@ -73,11 +70,9 @@ else
         model = "gemini-3.5-flash-lite"
         config = GenerateContentConfig(; http_options=http_options, max_output_tokens=50)
 
-        # Test single prompt streaming
         prompt = "Hello, how are you?"
         stream = generate_content_stream(secret_key, model, prompt)
 
-        # Collect all chunks
         chunks = []
         for chunk in stream
             if haskey(chunk, :error)
@@ -86,17 +81,14 @@ else
             push!(chunks, chunk)
         end
 
-        # Verify we got at least one chunk and that it has text
         @test length(chunks) > 0
         @test any(chunk -> !isempty(get(chunk, :text, "")), chunks)
 
-        # Test conversation streaming
         conversation = [
             Dict(:role => "user", :parts => [Dict(:text => "Hello, how are you?")])
         ]
         stream = generate_content_stream(secret_key, model, conversation)
 
-        # Collect all chunks
         chunks = []
         for chunk in stream
             if haskey(chunk, :error)
@@ -105,7 +97,6 @@ else
             push!(chunks, chunk)
         end
 
-        # Verify we got at least one chunk and that it has text
         @test length(chunks) > 0
         @test any(chunk -> !isempty(get(chunk, :text, "")), chunks)
     end
@@ -116,7 +107,6 @@ else
             http_options, safety_settings, thinking_config, max_output_tokens=50
         )
         model = "gemini-3.5-flash-lite"
-        # Generate text from text
         response = generate_content(secret_key, model, "Hello"; config)
         @test response.response_status == 200
     end
@@ -124,7 +114,6 @@ else
     @testset "System Instructions" begin
         model = "gemini-3.5-flash-lite"
 
-        # Test basic system instruction
         config = GenerateContentConfig(;
             http_options=http_options,
             system_instruction="You are a helpful assistant who always responds in haiku format.",
@@ -136,13 +125,11 @@ else
         @test response.response_status == 200
         @test response.text isa String
 
-        # Test system instruction with conversation
         conversation = [Dict(:role => "user", :parts => [Dict(:text => "Hello")])]
         response = generate_content(secret_key, model, conversation; config=config)
         @test response.response_status == 200
         @test response.text isa String
 
-        # Test streaming with system instruction
         config_stream = GenerateContentConfig(;
             http_options=http_options,
             system_instruction="You are a pirate. Always respond as a pirate would.",
@@ -181,7 +168,6 @@ else
             push!(chunks, chunk)
         end
 
-        # Verify we got at least one chunk and that it has text
         @test length(chunks) > 0
         @test any(chunk -> !isempty(get(chunk, :text, "")), chunks)
     end
@@ -214,5 +200,52 @@ else
         finally
             close_live!(session)
         end
+    end
+
+    @testset "Decisions" begin
+        provider = GoogleProvider(; api_key=secret_key)
+        model = "gemini-decision-1"
+
+        r = create_decision(
+            provider,
+            model,
+            "Third late order and support hung up on me. Cancel my subscription.",
+            (
+                wants_cancel=NoulQuestion("Does the customer want to cancel?"),
+                topic=ChoiceQuestion("Primary topic", ["shipping", "billing", "praise"]),
+                sentiment=ScoreQuestion(
+                    "Customer sentiment", ["negative", "neutral", "positive"]
+                ),
+            );
+            http_kwargs=http_options,
+        )
+        @test r.response_status == 200
+        @test r.answers["wants_cancel"].noul > 0.5
+        @test r.answers["topic"].choice == "shipping"
+        sentiment = r.answers["sentiment"]
+        @test sentiment.legend[argmax(sentiment.probabilities)] == "negative"
+        @test r.usage[:total_output_tokens] == 0
+
+        image = create_decision(
+            secret_key,
+            model,
+            [(path="input/example.jpg",)],
+            Dict("is_photo" => NoulQuestion("Is this a photograph?"));
+            http_kwargs=http_options,
+        )
+        @test image.answers["is_photo"] isa NoulAnswer
+
+        err = try
+            create_decision(
+                provider,
+                model,
+                "hi",
+                (bad=Dict("type" => "choice", "instructions" => "x"),),
+            )
+        catch e
+            e
+        end
+        @test err isa HTTP.Exceptions.StatusError
+        @test !occursin(secret_key, sprint(showerror, err))
     end
 end

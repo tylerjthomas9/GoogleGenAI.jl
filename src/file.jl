@@ -17,7 +17,6 @@ function upload_file(
         display_name = basename(file_path)
     end
 
-    # Step 1: Initiate the upload
     url = "$(provider.base_url)/upload/$(provider.api_version)/files?key=$(provider.api_key)"
     file_size = filesize(file_path)
     headers = Dict(
@@ -35,13 +34,11 @@ function upload_file(
         status_error(response, String(response.body))
     end
 
-    # Extract the upload URL
     upload_url = get(Dict(response.headers), "X-Goog-Upload-URL", nothing)
     if upload_url === nothing
         error("Failed to obtain upload URL")
     end
 
-    # Step 2: Upload the file content
     file_content = read(file_path)
     upload_headers = Dict(
         "Content-Length" => string(file_size),
@@ -119,7 +116,6 @@ function list_files(
     page_token::String="",
     http_kwargs=NamedTuple(),
 )
-    # Build the URL with query parameters.
     url = "$(provider.base_url)/$(provider.api_version)/files?key=$(provider.api_key)&pageSize=$(page_size)"
     if page_token != ""
         url *= "&pageToken=$(page_token)"

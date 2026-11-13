@@ -1,4 +1,5 @@
 using Aqua
+using Base64
 using Dates
 using GoogleGenAI
 using HTTP
@@ -102,6 +103,7 @@ include("test_chat.jl")
 include("test_batch.jl")
 include("test_live.jl")
 include("test_stream.jl")
+include("test_decisions.jl")
 
 # Live API integration tests. Opt in with:
 #   GOOGLE_GENAI_INTEGRATION=1 julia --project=. -e 'using Pkg; Pkg.test()'

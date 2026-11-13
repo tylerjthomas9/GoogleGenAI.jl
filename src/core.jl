@@ -44,7 +44,6 @@ function Base.show(io::IO, ::MIME"text/plain", provider::GoogleProvider)
     return print(io, "  api_version: \"$(provider.api_version)\"")
 end
 
-# Custom exception for blocked prompts
 struct BlockedPromptException <: Exception end
 
 function status_error(resp, log=nothing)
@@ -337,8 +336,10 @@ function _request(
         throw(ArgumentError("api_key cannot be empty"))
     end
 
-    url = "$(provider.base_url)/$(provider.api_version)/$endpoint?key=$(provider.api_key)"
-    headers = Dict("Content-Type" => "application/json")
+    url = "$(provider.base_url)/$(provider.api_version)/$endpoint"
+    headers = Dict(
+        "Content-Type" => "application/json", "x-goog-api-key" => provider.api_key
+    )
 
     serialized_body = isempty(body) ? UInt8[] : JSON3.write(body)
     response = HTTP.request(
