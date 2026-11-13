@@ -8,6 +8,7 @@ CurrentModule = GoogleGenAI
 # API
 ```@docs
 GoogleProvider
+APIError
 SafetySetting
 ThinkingConfig
 GenerateContentConfig

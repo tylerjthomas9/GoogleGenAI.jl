@@ -245,7 +245,8 @@ else
         catch e
             e
         end
-        @test err isa HTTP.Exceptions.StatusError
+        @test err isa APIError
+        @test err.status == 400
         @test !occursin(secret_key, sprint(showerror, err))
     end
 end

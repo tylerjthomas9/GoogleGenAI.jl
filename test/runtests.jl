@@ -74,16 +74,45 @@ end
     @test isempty(response.candidates)
 end
 
-@testset "status_error includes response body" begin
-    resp = HTTP.Response(429, []; body="quota exceeded")
-    err = try
-        GoogleGenAI.status_error(resp)
-    catch e
-        e
+@testset "APIError parses Google error payloads" begin
+    err = GoogleGenAI._api_error(429, load_fixture("error_429.json"))
+    @test err isa APIError
+    @test err.status == 429
+    @test err.code == "RESOURCE_EXHAUSTED"
+    @test occursin("quota", lowercase(err.message))
+    @test occursin("429 RESOURCE_EXHAUSTED", sprint(showerror, err))
+
+    wrapped = GoogleGenAI._api_error(
+        200,
+        """[{"error": {"code": 503, "message": "overloaded", "status": "UNAVAILABLE"}}]""",
+    )
+    @test (wrapped.status, wrapped.code, wrapped.message) ==
+        (503, "UNAVAILABLE", "overloaded")
+
+    plain = GoogleGenAI._api_error(502, "Bad Gateway")
+    @test (plain.status, plain.code, plain.message) == (502, "", "Bad Gateway")
+    @test GoogleGenAI._api_error(500, "").message == "HTTP 500"
+end
+
+@testset "Failed requests throw APIError" begin
+    server = HTTP.serve!("127.0.0.1", 18755; listenany=true) do req
+        body = """{"error": {"code": 400, "message": "API key not valid", "status": "INVALID_ARGUMENT"}}"""
+        return HTTP.Response(400, body)
     end
-    @test err isa ErrorException
-    @test occursin("429", err.msg)
-    @test occursin("quota exceeded", err.msg)
+    try
+        port = HTTP.Servers.port(server)
+        provider = GoogleProvider(; api_key="test", base_url="http://127.0.0.1:$port")
+        err = try
+            get_file(provider, "files/abc")
+        catch e
+            e
+        end
+        @test err isa APIError
+        @test (err.status, err.code, err.message) ==
+            (400, "INVALID_ARGUMENT", "API key not valid")
+    finally
+        close(server)
+    end
 end
 
 @testset "Bare function tools build declarations" begin

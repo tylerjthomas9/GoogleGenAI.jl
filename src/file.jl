@@ -31,10 +31,10 @@ function upload_file(
     body = Dict("file" => Dict("displayName" => display_name))
     serialized_body = JSON3.write(body)
 
-    response = HTTP.request("POST", url, headers, serialized_body; http_kwargs...)
-    if response.status >= 400
-        status_error(response, String(response.body))
-    end
+    response = HTTP.request(
+        "POST", url, headers, serialized_body; status_exception=false, http_kwargs...
+    )
+    _check_status(response)
 
     upload_url = get(Dict(response.headers), "X-Goog-Upload-URL", nothing)
     if upload_url === nothing
@@ -48,10 +48,15 @@ function upload_file(
         "X-Goog-Upload-Command" => "upload, finalize",
     )
 
-    response = HTTP.request("PUT", upload_url, upload_headers, file_content; http_kwargs...)
-    if response.status >= 400
-        status_error(response, String(response.body))
-    end
+    response = HTTP.request(
+        "PUT",
+        upload_url,
+        upload_headers,
+        file_content;
+        status_exception=false,
+        http_kwargs...,
+    )
+    _check_status(response)
 
     return JSON3.read(String(response.body))[:file]
 end

@@ -247,9 +247,13 @@ function download_batch_output_file(
 )
     url = "$(provider.base_url)/download/$(provider.api_version)/$file_name:download"
     response = HTTP.get(
-        url; headers=_headers(provider), query=Dict("alt" => "media"), http_kwargs...
+        url;
+        headers=_headers(provider),
+        query=Dict("alt" => "media"),
+        status_exception=false,
+        http_kwargs...,
     )
-    response.status >= 400 && status_error(response, String(response.body))
+    _check_status(response)
     content = String(response.body)
     lines = filter(!isempty, strip.(split(content, '\n')))
     return [JSON3.read(line) for line in lines]

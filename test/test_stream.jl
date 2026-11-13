@@ -70,6 +70,8 @@ end
 
         @test [c.text for c in chunks] == ["Hel", ""]
         @test chunks[end].finish_reason == "ERROR"
+        @test chunks[end].error isa APIError
+        @test chunks[end].error.status == 503
         msg = sprint(showerror, chunks[end].error)
         @test occursin("The model is overloaded", msg)
         @test !occursin("key=test", msg)
@@ -83,8 +85,9 @@ end
         chunks = collect(generate_content_stream(provider, "test-model", "hi"))
 
         @test length(chunks) == 1
+        @test only(chunks).error isa APIError
         msg = sprint(showerror, only(chunks).error)
-        @test occursin("status 400", msg)
+        @test occursin("400", msg)
         @test occursin("API key not valid", msg)
         @test !occursin("key=test", msg)
     end
