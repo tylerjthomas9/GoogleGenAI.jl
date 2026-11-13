@@ -32,7 +32,7 @@ function _live_websocket_url(provider::AbstractGoogleProvider)
     host_port = replace(provider.base_url, r"^https?://" => "", r"/$" => "")
     version = provider.api_version == "v1alpha" ? "v1alpha" : "v1beta"
     path = replace(LIVE_WS_PATH, "v1beta." => "$version.")
-    return "$scheme://$host_port/ws/$path?key=$(provider.api_key)"
+    return "$scheme://$host_port/ws/$path"
 end
 
 """
@@ -124,7 +124,7 @@ function connect_live(
 
     session.ws_ref[] = @async begin
         try
-            HTTP.WebSockets.open(url) do ws
+            HTTP.WebSockets.open(url; headers=_headers(provider)) do ws
                 # Writer task: forwards queued frames to the socket.
                 writer = @async begin
                     try

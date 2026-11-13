@@ -15,6 +15,7 @@ function _build_request_body(
 
     config.safety_settings !== nothing && (body["safetySettings"] = config.safety_settings)
     config.cached_content !== nothing && (body["cachedContent"] = config.cached_content)
+    config.labels !== nothing && (body["labels"] = config.labels)
 
     tool_config = _build_tool_config(config)
     tool_config !== nothing && (body["toolConfig"] = tool_config)
@@ -49,9 +50,7 @@ function _parse_response(response)
         if content !== nothing && haskey(content, :parts)
             for part in content.parts
                 if haskey(part, :text) && part.text !== nothing
-                    if !isempty(strip(part.text))
-                        push!(text_parts, part.text)
-                    end
+                    _is_answer_text(part) && push!(text_parts, part.text)
                 elseif haskey(part, :inlineData) && part.inlineData !== nothing
                     inline_data = part.inlineData
                     mime_type = get(inline_data, :mimeType, "image/png")
@@ -68,7 +67,6 @@ function _parse_response(response)
                     name = get(fc, :name, "")
                     args_str = get(fc, :args, "{}")
 
-                    # Parse args - it should be a JSON object already
                     args = if typeof(args_str) <: AbstractDict
                         Dict{String,Any}(String(k) => v for (k, v) in pairs(args_str))
                     else
@@ -169,7 +167,6 @@ function _convert_contents(contents::AbstractVector)
     return parts
 end
 
-# DRY helpers for image handling
 function _infer_mime_from_ext(path::String)
     ext = lowercase(splitext(path)[2])
     if ext in [".jpg", ".jpeg"]
@@ -184,7 +181,6 @@ end
 function _image_inline_parts(; image_path::String="", images::AbstractVector=NamedTuple[])
     parts = Vector{Dict{String,Any}}()
 
-    # Handle legacy single image_path
     if !isempty(image_path)
         mime = _infer_mime_from_ext(image_path)
         push!(
@@ -196,7 +192,6 @@ function _image_inline_parts(; image_path::String="", images::AbstractVector=Nam
         )
     end
 
-    # Handle new images vector with named tuples
     for img in images
         if haskey(img, :path)
             mime = haskey(img, :mime_type) ? img.mime_type : _infer_mime_from_ext(img.path)
@@ -337,7 +332,7 @@ function _parse_stream_chunk(chunk_data, status)
     candidate = candidates[1]
     content = get(candidate, :content, nothing)
     parts = content === nothing ? () : get(content, :parts, ())
-    text = join(p.text for p in parts if get(p, :text, nothing) !== nothing)
+    text = join(p.text for p in parts if _is_answer_text(p))
 
     return (
         candidates=candidates,
@@ -393,15 +388,16 @@ function generate_content_stream(
 
     processed_channel = Channel{NamedTuple}(32)
 
-    query = Dict("key" => provider.api_key, "alt" => "sse")
-
     url = "$(provider.base_url)/$(provider.api_version)/$endpoint"
-    headers = Dict("Content-Type" => "application/json")
 
     @async begin
         try
             HTTP.open(
-                "POST", url; headers=headers, query=query, config.http_options...
+                "POST",
+                url;
+                headers=_headers(provider),
+                query=Dict("alt" => "sse"),
+                config.http_options...,
             ) do stream
                 write(stream, JSON3.write(body))
                 HTTP.closewrite(stream)

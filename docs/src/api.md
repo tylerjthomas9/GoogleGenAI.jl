@@ -22,6 +22,13 @@ generate_content
 generate_content_stream
 count_tokens
 embed_content
+create_decision
+NoulQuestion
+ChoiceQuestion
+ScoreQuestion
+NoulAnswer
+ChoiceAnswer
+ScoreAnswer
 list_models
 create_cached_content
 list_cached_content

@@ -1,8 +1,10 @@
 using Aqua
+using Base64
 using Dates
 using GoogleGenAI
 using HTTP
 using JSON3
+using Sockets
 using Test
 
 @testset "Internal Functions" begin
@@ -96,12 +98,52 @@ end
     @test haskey(decls[1], "parameters")
 end
 
+@testset "Generation config sends every set field" begin
+    config = GenerateContentConfig(;
+        seed=42, presence_penalty=0.5, frequency_penalty=0.3, labels=Dict("team" => "a")
+    )
+    conversation = [Dict{Symbol,Any}(:role => "user", :parts => [Dict(:text => "hi")])]
+    body = GoogleGenAI._build_request_body(conversation, config)
+
+    @test body["generationConfig"] ==
+        Dict("seed" => 42, "presencePenalty" => 0.5, "frequencyPenalty" => 0.3)
+    @test body["labels"] == Dict("team" => "a")
+end
+
+@testset "Requests send the API key in a header and use the right paths" begin
+    requests = []
+    port, socket = Sockets.listenany(Sockets.localhost, 18754)
+    server = HTTP.serve!(socket) do req
+        push!(
+            requests,
+            (method=req.method, target=req.target, key=HTTP.header(req, "x-goog-api-key")),
+        )
+        return HTTP.Response(200, """{"files": []}""")
+    end
+    try
+        provider = GoogleProvider(; api_key="test", base_url="http://127.0.0.1:$port")
+        delete_batch_job(provider, "batches/123")
+        list_files(provider; page_token="next")
+        download_batch_output_file(provider, "files/out")
+    finally
+        close(server)
+    end
+
+    @test [(r.method, r.target) for r in requests] == [
+        ("DELETE", "/v1beta/batches/123"),
+        ("GET", "/v1beta/files?pageSize=10&pageToken=next"),
+        ("GET", "/download/v1beta/files/out:download?alt=media"),
+    ]
+    @test all(r -> r.key == "test", requests)
+end
+
 include("test_parsing.jl")
 include("test_builders.jl")
 include("test_chat.jl")
 include("test_batch.jl")
 include("test_live.jl")
 include("test_stream.jl")
+include("test_decisions.jl")
 
 # Live API integration tests. Opt in with:
 #   GOOGLE_GENAI_INTEGRATION=1 julia --project=. -e 'using Pkg; Pkg.test()'

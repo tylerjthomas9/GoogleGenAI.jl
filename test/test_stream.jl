@@ -1,6 +1,7 @@
 function with_sse_server(f, streams; status=200)
     bodies = []
-    server = HTTP.serve!("127.0.0.1", 18753; listenany=true, stream=true) do http
+    port, socket = Sockets.listenany(Sockets.localhost, 18753)
+    server = HTTP.serve!(socket; stream=true) do http
         push!(bodies, JSON3.read(read(http)))
         payload = join("data: $(JSON3.write(e))\r\n\r\n" for e in streams[length(bodies)])
         HTTP.setstatus(http, status)
@@ -12,7 +13,6 @@ function with_sse_server(f, streams; status=200)
         end
     end
     try
-        port = HTTP.Servers.port(server)
         f(GoogleProvider(; api_key="test", base_url="http://127.0.0.1:$port"), bodies)
     finally
         close(server)

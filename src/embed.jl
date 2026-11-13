@@ -41,7 +41,7 @@ end
 function embed_content(
     api_key::String, model_name::String, prompt::String; http_kwargs=NamedTuple()
 )
-    return embed_content(GoogleProvider(; api_key), model_name, prompt; http_kwargs...)
+    return embed_content(GoogleProvider(; api_key), model_name, prompt; http_kwargs)
 end
 
 """
@@ -74,7 +74,7 @@ end
 function embed_content(
     api_key::String, model_name::String, prompts::Vector{String}; http_kwargs=NamedTuple()
 )
-    return embed_content(GoogleProvider(; api_key), model_name, prompts; http_kwargs...)
+    return embed_content(GoogleProvider(; api_key), model_name, prompts; http_kwargs)
 end
 
 """
@@ -93,7 +93,7 @@ Generate an embedding for the given prompt text using automatic API key detectio
 - `NamedTuple`: A named tuple containing the embedding values and response status.
 """
 function embed_content(model_name::String, prompt::String; http_kwargs=NamedTuple())
-    return embed_content(GoogleProvider(), model_name, prompt; http_kwargs...)
+    return embed_content(GoogleProvider(), model_name, prompt; http_kwargs)
 end
 
 """
@@ -114,5 +114,5 @@ Generate embeddings for multiple prompts using automatic API key detection from 
 function embed_content(
     model_name::String, prompts::Vector{String}; http_kwargs=NamedTuple()
 )
-    return embed_content(GoogleProvider(), model_name, prompts; http_kwargs...)
+    return embed_content(GoogleProvider(), model_name, prompts; http_kwargs)
 end

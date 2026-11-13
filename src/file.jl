@@ -17,15 +17,16 @@ function upload_file(
         display_name = basename(file_path)
     end
 
-    # Step 1: Initiate the upload
-    url = "$(provider.base_url)/upload/$(provider.api_version)/files?key=$(provider.api_key)"
+    url = "$(provider.base_url)/upload/$(provider.api_version)/files"
     file_size = filesize(file_path)
-    headers = Dict(
-        "X-Goog-Upload-Protocol" => "resumable",
-        "X-Goog-Upload-Command" => "start",
-        "X-Goog-Upload-Header-Content-Length" => string(file_size),
-        "X-Goog-Upload-Header-Content-Type" => mime_type,
-        "Content-Type" => "application/json",
+    headers = merge(
+        _headers(provider),
+        Dict(
+            "X-Goog-Upload-Protocol" => "resumable",
+            "X-Goog-Upload-Command" => "start",
+            "X-Goog-Upload-Header-Content-Length" => string(file_size),
+            "X-Goog-Upload-Header-Content-Type" => mime_type,
+        ),
     )
     body = Dict("file" => Dict("displayName" => display_name))
     serialized_body = JSON3.write(body)
@@ -35,13 +36,11 @@ function upload_file(
         status_error(response, String(response.body))
     end
 
-    # Extract the upload URL
     upload_url = get(Dict(response.headers), "X-Goog-Upload-URL", nothing)
     if upload_url === nothing
         error("Failed to obtain upload URL")
     end
 
-    # Step 2: Upload the file content
     file_content = read(file_path)
     upload_headers = Dict(
         "Content-Length" => string(file_size),
@@ -119,18 +118,10 @@ function list_files(
     page_token::String="",
     http_kwargs=NamedTuple(),
 )
-    # Build the URL with query parameters.
-    url = "$(provider.base_url)/$(provider.api_version)/files?key=$(provider.api_key)&pageSize=$(page_size)"
-    if page_token != ""
-        url *= "&pageToken=$(page_token)"
-    end
-    headers = Dict("Content-Type" => "application/json")
-
-    response = HTTP.request(:GET, url, headers, ""; http_kwargs...)
-    if response.status >= 400
-        status_error(response, String(response.body))
-    end
-    return JSON3.read(String(response.body))[:files]
+    query = ["pageSize" => string(page_size)]
+    isempty(page_token) || push!(query, "pageToken" => page_token)
+    response = _request(provider, "files", :GET, Dict(); query, http_kwargs...)
+    return JSON3.read(response.body)[:files]
 end
 
 function list_files(

@@ -1,0 +1,49 @@
+{
+  "answers": {
+    "sentiment": {
+      "type": "score",
+      "score": 0.03637631237455299,
+      "confidence": 0.9650992756307952,
+      "probabilities": {
+        "0": 0.9650992756307952,
+        "1": 0.03360855060621176,
+        "2": 0.0011270099965158763,
+        "3": 0.00014691329059972647,
+        "4": 1.8250475877574586e-5
+      },
+      "legend": {
+        "0": "very negative",
+        "1": "negative",
+        "2": "neutral",
+        "3": "positive",
+        "4": "very positive"
+      }
+    },
+    "topic": {
+      "type": "choice",
+      "choice": "support_quality",
+      "confidence": 0.44129967568499145,
+      "probabilities": {
+        "shipping": 0.4379038735039455,
+        "support_quality": 0.44129967568499145,
+        "other": 0.10210794751008419,
+        "billing": 0.018688503300978997
+      }
+    },
+    "wants_cancel": {
+      "type": "noul",
+      "noul": 0.9746116115316582,
+      "confidence": 0.9746116115316582
+    },
+    "future": {
+      "type": "ranking",
+      "ranking": ["a", "b"]
+    }
+  },
+  "usage": {
+    "total_tokens": 255,
+    "total_input_tokens": 255,
+    "input_tokens_by_modality": [{"modality": "text", "tokens": 255}],
+    "total_output_tokens": 0
+  }
+}

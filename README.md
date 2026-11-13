@@ -209,18 +209,18 @@ outputs
 ```julia
 using GoogleGenAI
 
-embeddings = embed_content("text-embedding-004", "Hello")
+embeddings = embed_content("gemini-embedding-001", "Hello")
 println(size(embeddings.values))
 ```
 outputs
 ```julia
-(768,)
+(3072,)
 ```
 
 ```julia
 using GoogleGenAI
 
-embeddings = embed_content("text-embedding-004", ["Hello", "world"])
+embeddings = embed_content("gemini-embedding-001", ["Hello", "world"])
 println(embeddings.response_status)
 println(size(embeddings.values[1]))
 println(size(embeddings.values[2]))
@@ -228,8 +228,41 @@ println(size(embeddings.values[2]))
 outputs
 ```julia
 200
-(768,)
-(768,)
+(3072,)
+(3072,)
+```
+
+### Decisions
+
+Ask calibrated yes/no, single-choice, and rubric questions about text, images, audio, video, or PDFs.
+
+```julia
+using GoogleGenAI
+
+r = create_decision(
+    "gemini-decision-1",
+    "Third late order and support hung up on me. Cancel my subscription.",
+    (
+        wants_cancel = NoulQuestion("Does the customer want to cancel?"),
+        topic = ChoiceQuestion("Primary topic", ["shipping", "billing", "praise"]),
+        sentiment = ScoreQuestion("Customer sentiment", ["negative", "neutral", "positive"]),
+    ),
+)
+
+r.answers["wants_cancel"].noul        # P(true)
+r.answers["topic"].choice             # most likely option
+r.answers["topic"].probabilities      # option => probability
+r.answers["sentiment"].probabilities  # aligned with r.answers["sentiment"].legend
+```
+
+Inputs can mix text and media given as a `path`, raw `data`, a `uri`, or a file from `upload_file`:
+
+```julia
+r = create_decision(
+    "gemini-decision-1",
+    ["Product photo and customer call:", (path="mug.jpg", resolution="high"), upload_file("call.mp3")],
+    (damaged = NoulQuestion("Is the product damaged?"),),
+)
 ```
 
 ### List Models

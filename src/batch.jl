@@ -223,7 +223,7 @@ the list of batch jobs.
 function delete_batch_job(
     provider::AbstractGoogleProvider, job_name::String; http_kwargs...
 )
-    response = _request(provider, "$job_name:delete", :DELETE, Dict(); http_kwargs...)
+    response = _request(provider, job_name, :DELETE, Dict(); http_kwargs...)
     return JSON3.read(String(response.body))
 end
 
@@ -245,8 +245,10 @@ describing an error for that specific request.
 function download_batch_output_file(
     provider::AbstractGoogleProvider, file_name::String; http_kwargs...
 )
-    url = "$(provider.base_url)/download/$(provider.api_version)/$file_name:download?alt=media&key=$(provider.api_key)"
-    response = HTTP.get(url; http_kwargs...)
+    url = "$(provider.base_url)/download/$(provider.api_version)/$file_name:download"
+    response = HTTP.get(
+        url; headers=_headers(provider), query=Dict("alt" => "media"), http_kwargs...
+    )
     response.status >= 400 && status_error(response, String(response.body))
     content = String(response.body)
     lines = filter(!isempty, strip.(split(content, '\n')))
@@ -350,8 +352,7 @@ function _generate_content_response_text(response::JSON3.Object)
         parts = get(content, :parts, nothing)
         parts === nothing && continue
         for part in parts
-            text = get(part, :text, nothing)
-            text !== nothing && push!(texts, String(text))
+            _is_answer_text(part) && push!(texts, String(part.text))
         end
     end
     return join(texts)
