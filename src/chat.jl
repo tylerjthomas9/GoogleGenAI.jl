@@ -71,25 +71,6 @@ function _user_message(
     return Dict(:role => "user", :parts => parts)
 end
 
-function _serialize_function_result(result)
-    result === nothing && return Dict("status" => "completed")
-    isa(result, AbstractDict) && return result
-    isa(result, AbstractVector) && return Dict("value" => result)
-    return Dict("value" => result)
-end
-
-function _execute_function(functions::Dict{String,Function}, fc::FunctionCall)
-    if !haskey(functions, fc.name)
-        return Dict("error" => "Function $(fc.name) not found")
-    end
-    try
-        symbol_args = string_to_symbol_keys(fc.args)
-        return _serialize_function_result(functions[fc.name](; symbol_args...))
-    catch e
-        return Dict("error" => "Error executing function: $e")
-    end
-end
-
 function _content_parts(response)::Union{Nothing,Vector{Dict{Symbol,Any}}}
     candidates = get(response, :candidates, nothing)
     (candidates === nothing || isempty(candidates)) && return nothing
@@ -135,8 +116,10 @@ function _record_function_exchange!(
 
     response_parts = [
         Dict(
-            :functionResponse =>
-                Dict(:name => fc.name, :response => _execute_function(functions, fc)),
+            :functionResponse => Dict(
+                :name => fc.name,
+                :response => _call_function(functions, fc.name, fc.args),
+            ),
         ) for fc in function_calls
     ]
     push!(conversation, Dict(:role => "user", :parts => response_parts))

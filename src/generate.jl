@@ -11,72 +11,13 @@ function _build_request_body(
     end
     body["contents"] = conversation
     body["generationConfig"] = _build_generation_config(config)
-    body["tools"] = []
+    body["tools"] = _build_tools(config)
 
-    # Add optional fields
     config.safety_settings !== nothing && (body["safetySettings"] = config.safety_settings)
     config.cached_content !== nothing && (body["cachedContent"] = config.cached_content)
 
-    if config.tools !== nothing
-        function_declarations = []
-
-        for tool in config.tools
-            if isa(tool, Function)
-                decl = _function_to_declaration(tool)
-                api_decl = to_api_function_declaration(decl)
-                push!(function_declarations, api_decl)
-            elseif isa(tool, Dict)
-                string_tool = Dict{String,Any}()
-                for (k, v) in tool
-                    string_tool[string(k)] = v
-                end
-                push!(body["tools"], string_tool)
-            else
-                @warn "Ignoring unsupported tool type: $(typeof(tool))"
-            end
-        end
-
-        if !isempty(function_declarations)
-            push!(
-                body["tools"],
-                Dict{String,Any}("functionDeclarations" => function_declarations),
-            )
-        end
-    end
-
-    if config.function_declarations !== nothing
-        api_decls = [to_api_function_declaration(fd) for fd in config.function_declarations]
-        found = false
-        for tool in body["tools"]
-            if haskey(tool, "functionDeclarations")
-                append!(tool["functionDeclarations"], api_decls)
-                found = true
-                break
-            end
-        end
-
-        if !found
-            push!(body["tools"], Dict{String,Any}("functionDeclarations" => api_decls))
-        end
-    end
-
-    if config.tool_config !== nothing
-        tool_config_dict = Dict{String,Any}()
-
-        if config.tool_config.function_calling_config !== nothing
-            fc_config = config.tool_config.function_calling_config
-            function_calling_dict = Dict{String,Any}("mode" => fc_config.mode)
-
-            if fc_config.allowed_function_names !== nothing
-                function_calling_dict["allowedFunctionNames"] =
-                    fc_config.allowed_function_names
-            end
-
-            tool_config_dict["functionCallingConfig"] = function_calling_dict
-        end
-
-        body["toolConfig"] = tool_config_dict
-    end
+    tool_config = _build_tool_config(config)
+    tool_config !== nothing && (body["toolConfig"] = tool_config)
 
     return body
 end

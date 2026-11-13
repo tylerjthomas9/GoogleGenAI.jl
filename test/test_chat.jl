@@ -52,11 +52,6 @@ end
     )
     fc = FunctionCall(; name="get_weather", args=Dict{String,Any}("location" => "Tokyo"))
 
-    @test GoogleGenAI._execute_function(functions, fc) == Dict("temperature" => 25)
-    @test GoogleGenAI._execute_function(
-        functions, FunctionCall(; name="missing", args=Dict{String,Any}())
-    ) == Dict("error" => "Function missing not found")
-
     conversation = Dict{Symbol,Any}[]
     GoogleGenAI._record_function_exchange!(
         conversation,
@@ -68,9 +63,30 @@ end
     @test conversation[1][:parts][1][:functionCall][:name] == "get_weather"
     @test conversation[2][:role] == "user"
     @test conversation[2][:parts][1][:functionResponse][:name] == "get_weather"
+    @test conversation[2][:parts][1][:functionResponse][:response] ==
+        Dict("temperature" => 25)
+end
 
-    # Result serialization rules
-    @test GoogleGenAI._serialize_function_result(Dict("a" => 1)) == Dict("a" => 1)
-    @test GoogleGenAI._serialize_function_result(nothing) == Dict("status" => "completed")
-    @test GoogleGenAI._serialize_function_result(42) == Dict("value" => 42)
+@testset "Function call execution" begin
+    weather(; location) = location == "Tokyo" ? Dict("temperature" => 25) : error("unknown")
+    functions = Dict{String,Function}("get_weather" => weather)
+    call(name, args) = GoogleGenAI._call_function(functions, name, args)
+
+    @test call("get_weather", Dict("location" => "Tokyo")) == Dict("temperature" => 25)
+    @test call("get_weather", JSON3.read("""{"location": "Tokyo"}""")) ==
+        Dict("temperature" => 25)
+    @test haskey(call("get_weather", Dict("location" => "Paris")), "error")
+    @test call("missing", Dict()) == Dict("error" => "Function missing not found")
+
+    returning(x) = Dict{String,Function}("f" => (; kw...) -> x)
+    obj = JSON3.read("""{"a": 1}""")
+    @test GoogleGenAI._call_function(returning(obj), "f", Dict()) === obj
+    @test GoogleGenAI._call_function(returning(nothing), "f", Dict()) ==
+        Dict("status" => "completed")
+    @test GoogleGenAI._call_function(returning(42), "f", Dict()) == Dict("value" => 42)
+
+    results = execute_parallel_function_calls(
+        [FunctionCall("f", Dict{String,Any}())], returning(obj)
+    )
+    @test results["f"] === obj
 end

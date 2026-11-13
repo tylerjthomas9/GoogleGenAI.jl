@@ -1,3 +1,9 @@
+function string_key_dict(d::AbstractDict)
+    return Dict{String,Any}(
+        string(k) => (v isa AbstractDict ? string_key_dict(v) : v) for (k, v) in pairs(d)
+    )
+end
+
 function _get_mime_type(file_path::String)::String
     ext = lowercase(splitext(file_path)[2])
     mime_map = Dict(
