@@ -71,25 +71,6 @@ function _user_message(
     return Dict(:role => "user", :parts => parts)
 end
 
-function _serialize_function_result(result)
-    result === nothing && return Dict("status" => "completed")
-    isa(result, AbstractDict) && return result
-    isa(result, AbstractVector) && return Dict("value" => result)
-    return Dict("value" => result)
-end
-
-function _execute_function(functions::Dict{String,Function}, fc::FunctionCall)
-    if !haskey(functions, fc.name)
-        return Dict("error" => "Function $(fc.name) not found")
-    end
-    try
-        symbol_args = string_to_symbol_keys(fc.args)
-        return _serialize_function_result(functions[fc.name](; symbol_args...))
-    catch e
-        return Dict("error" => "Error executing function: $e")
-    end
-end
-
 function _content_parts(response)::Union{Nothing,Vector{Dict{Symbol,Any}}}
     candidates = get(response, :candidates, nothing)
     (candidates === nothing || isempty(candidates)) && return nothing
@@ -98,6 +79,31 @@ function _content_parts(response)::Union{Nothing,Vector{Dict{Symbol,Any}}}
     return [
         Dict{Symbol,Any}(Symbol(k) => v for (k, v) in pairs(part)) for part in content.parts
     ]
+end
+
+function _is_text_part(part)
+    return haskey(part, :text) && keys(part) ⊆ (:text, :thought, :thoughtSignature)
+end
+
+function _append_stream_parts!(parts::Vector{Dict{Symbol,Any}}, chunk)
+    for part in something(_content_parts(chunk), ())
+        if !_is_text_part(part)
+            push!(parts, part)
+            continue
+        end
+        prev = isempty(parts) ? nothing : parts[end]
+        if prev !== nothing &&
+            _is_text_part(prev) &&
+            !haskey(prev, :thoughtSignature) &&
+            get(prev, :thought, false) == get(part, :thought, false)
+            prev[:text] = string(prev[:text], part[:text])
+            haskey(part, :thoughtSignature) &&
+                (prev[:thoughtSignature] = part[:thoughtSignature])
+        elseif !isempty(part[:text]) || haskey(part, :thoughtSignature)
+            push!(parts, part)
+        end
+    end
+    return parts
 end
 
 function _record_function_exchange!(
@@ -110,8 +116,10 @@ function _record_function_exchange!(
 
     response_parts = [
         Dict(
-            :functionResponse =>
-                Dict(:name => fc.name, :response => _execute_function(functions, fc)),
+            :functionResponse => Dict(
+                :name => fc.name,
+                :response => _call_function(functions, fc.name, fc.args),
+            ),
         ) for fc in function_calls
     ]
     push!(conversation, Dict(:role => "user", :parts => response_parts))
@@ -202,9 +210,8 @@ function send_message_stream(
         try
             rounds = 0
             aborted = false
-            final_chunk = NamedTuple()
             while true
-                full_text = ""
+                model_parts = Dict{Symbol,Any}[]
                 function_calls = nothing
                 for chunk in generate_content_stream(
                     chat.provider, chat.model, conversation; config=active_config
@@ -215,10 +222,9 @@ function send_message_stream(
                         break
                     end
                     haskey(chunk, :full_text) || continue
-                    full_text = chunk.full_text
+                    _append_stream_parts!(model_parts, chunk)
                     chunk.function_calls !== nothing &&
                         (function_calls = chunk.function_calls)
-                    final_chunk = chunk
                     put!(result_channel, chunk)
                     chunk.finish_reason !== nothing && break
                 end
@@ -228,24 +234,13 @@ function send_message_stream(
                 if function_calls === nothing ||
                     isempty(chat.functions) ||
                     rounds >= MAX_FUNCTION_CALL_ROUNDS
+                    isempty(model_parts) &&
+                        push!(model_parts, Dict{Symbol,Any}(:text => ""))
                     push!(chat.history, user_message)
-                    model_parts = _content_parts(final_chunk)
-                    if model_parts !== nothing
-                        push!(chat.history, Dict(:role => "model", :parts => model_parts))
-                    else
-                        push!(
-                            chat.history,
-                            Dict(
-                                :role => "model",
-                                :parts => [Dict(:text => String(full_text))],
-                            ),
-                        )
-                    end
+                    push!(chat.history, Dict(:role => "model", :parts => model_parts))
                     break
                 end
 
-                model_parts = _content_parts(final_chunk)
-                model_parts === nothing && break
                 _record_function_exchange!(
                     conversation, chat.functions, model_parts, function_calls
                 )

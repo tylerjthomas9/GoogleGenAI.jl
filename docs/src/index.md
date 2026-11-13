@@ -114,6 +114,7 @@ prompt = "Why is the sky blue?"
 stream = generate_content_stream(model, prompt)
 
 for chunk in stream
+    haskey(chunk, :error) && throw(chunk.error)
     print(chunk.text)
 end
 ```
@@ -133,6 +134,7 @@ println("Generating first response...")
 stream = generate_content_stream(provider, model, conversation)
 
 for chunk in stream
+    haskey(chunk, :error) && throw(chunk.error)
     println("Response: ", chunk.text)
 end
 ```

@@ -28,7 +28,7 @@ using Test
     @test !haskey(minimal, "systemInstruction")
 end
 
-@testset "Live tools assembly" begin
+@testset "Live and REST build the same tools" begin
     weather = FunctionDeclaration(;
         name="weather",
         description="Get current weather",
@@ -36,13 +36,24 @@ end
             type="object", properties=Dict{String,Any}(), required=["city"]
         ),
     )
+    lookup(; city) = city
     config = GenerateContentConfig(;
-        tools=Any[Dict(:googleSearch => Dict())], function_declarations=[weather]
+        tools=Any[Dict(:googleSearch => Dict()), lookup],
+        function_declarations=[weather],
+        tool_config=ToolConfig(;
+            function_calling_config=FunctionCallingConfig(; mode="ANY")
+        ),
     )
-    tools = GoogleGenAI._build_live_tools(config)
+    setup = GoogleGenAI._build_live_setup("m", config)
+    tools = setup["tools"]
     @test length(tools) == 2
     @test haskey(tools[1], "googleSearch")
-    @test tools[2]["functionDeclarations"][1]["name"] == "weather"
+    @test [d["name"] for d in tools[2]["functionDeclarations"]] == ["lookup", "weather"]
+    @test setup["toolConfig"] == Dict("functionCallingConfig" => Dict("mode" => "ANY"))
+
+    body = GoogleGenAI._build_request_body(Dict{Symbol,Any}[], config)
+    @test body["tools"] == tools
+    @test body["toolConfig"] == setup["toolConfig"]
 end
 
 @testset "Live websocket URL" begin

@@ -35,51 +35,6 @@ function _live_websocket_url(provider::AbstractGoogleProvider)
     return "$scheme://$host_port/ws/$path?key=$(provider.api_key)"
 end
 
-function string_key_dict(d::AbstractDict)
-    return Dict{String,Any}(
-        string(k) => (v isa AbstractDict ? string_key_dict(v) : v) for (k, v) in pairs(d)
-    )
-end
-
-"""
-    _build_live_tools(config::GenerateContentConfig) -> Vector{Any}
-
-Assemble the `tools` array for a Live setup message from native tool dicts and
-function declarations, mirroring `_build_request_body` in generate.jl.
-"""
-function _build_live_tools(config::GenerateContentConfig)
-    tools = Any[]
-    function_declarations = Any[]
-
-    if config.tools !== nothing
-        for tool in config.tools
-            if isa(tool, Function)
-                try
-                    decl = FunctionDeclaration(tool)
-                    push!(function_declarations, to_api_function_declaration(decl))
-                catch e
-                    @warn "Failed to convert function $(nameof(tool)) to declaration: $e"
-                end
-            elseif isa(tool, AbstractDict)
-                push!(tools, string_key_dict(tool))
-            else
-                @warn "Ignoring unsupported live tool type: $(typeof(tool))"
-            end
-        end
-    end
-
-    if config.function_declarations !== nothing
-        for fd in config.function_declarations
-            push!(function_declarations, to_api_function_declaration(fd))
-        end
-    end
-
-    if !isempty(function_declarations)
-        push!(tools, Dict{String,Any}("functionDeclarations" => function_declarations))
-    end
-    return tools
-end
-
 """
     _build_live_setup(model, config::GenerateContentConfig) -> Dict{String,Any}
 
@@ -109,17 +64,11 @@ function _build_live_setup(model::String, config::GenerateContentConfig)
         setup["systemInstruction"] = _format_system_instruction(config.system_instruction)
     end
 
-    tools = _build_live_tools(config)
+    tools = _build_tools(config)
     isempty(tools) || (setup["tools"] = tools)
 
-    if config.tool_config !== nothing &&
-        config.tool_config.function_calling_config !== nothing
-        fc = config.tool_config.function_calling_config
-        fc_dict = Dict{String,Any}("mode" => fc.mode)
-        fc.allowed_function_names !== nothing &&
-            (fc_dict["allowedFunctionNames"] = fc.allowed_function_names)
-        setup["toolConfig"] = Dict{String,Any}("functionCallingConfig" => fc_dict)
-    end
+    tool_config = _build_tool_config(config)
+    tool_config !== nothing && (setup["toolConfig"] = tool_config)
 
     if config.cached_content !== nothing
         setup["cachedContent"] = config.cached_content
@@ -266,7 +215,7 @@ function _parse_live_event(session::LiveSession, frame::String)
                 Dict{String,Any}(
                     "id" => String(get(fc, :id, "")),
                     "name" => String(get(fc, :name, "")),
-                    "response" => _execute_live_function(
+                    "response" => _call_function(
                         session.functions,
                         String(get(fc, :name, "")),
                         get(fc, :args, Dict()),
@@ -292,25 +241,6 @@ function _parse_live_event(session::LiveSession, frame::String)
     end
 
     return event
-end
-
-function _execute_live_function(functions::Dict{String,Function}, name::String, args)
-    !haskey(functions, name) && return Dict("error" => "Function $name not found")
-    try
-        symbol_args = string_to_symbol_keys(args)
-        result = functions[name](; symbol_args...)
-        result === nothing && return Dict("status" => "completed")
-        isa(result, AbstractDict) && return string_key_dict(result)
-        isa(result, AbstractVector) && return Dict{String,Any}("value" => result)
-        return Dict{String,Any}("value" => result)
-    catch e
-        return Dict{String,Any}("error" => "Error executing function: $e")
-    end
-end
-
-# Generic fallback so JSON3.Object tool-call args work with keyword splatting.
-function string_to_symbol_keys(dict::AbstractDict)
-    return Dict{Symbol,Any}(Symbol(k) => v for (k, v) in pairs(dict))
 end
 
 """
