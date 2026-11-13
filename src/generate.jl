@@ -381,6 +381,34 @@ function generate_content(
     )
 end
 
+function _take_lines!(buf::Vector{UInt8})
+    last_newline = findlast(==(UInt8('\n')), buf)
+    last_newline === nothing && return SubString{String}[]
+    lines = split(String(buf[1:(last_newline - 1)]), '\n')
+    deleteat!(buf, 1:last_newline)
+    return lines
+end
+
+function _parse_stream_chunk(data_str::AbstractString, status)
+    chunk_data = JSON3.read(data_str)
+    candidates = get(chunk_data, :candidates, ())
+    isempty(candidates) && return nothing
+
+    candidate = candidates[1]
+    content = get(candidate, :content, nothing)
+    parts = content === nothing ? () : get(content, :parts, ())
+    text = join(p.text for p in parts if get(p, :text, nothing) !== nothing)
+
+    return (
+        candidates=candidates,
+        safety_ratings=get(chunk_data, :safetyRatings, Dict{Any,Any}()),
+        text=text,
+        status=status,
+        finish_reason=get(candidate, :finishReason, nothing),
+        usage_metadata=get(chunk_data, :usageMetadata, Dict{Symbol,Any}()),
+    )
+end
+
 """
     generate_content_stream(provider::AbstractGoogleProvider, model_name::String, prompt::String; image_path::String="", config=GenerateContentConfig()) -> Channel
     generate_content_stream(api_key::String, model_name::String, prompt::String; image_path::String="", config=GenerateContentConfig()) -> Channel
@@ -416,28 +444,21 @@ function generate_content_stream(
     endpoint = "models/$model_name:streamGenerateContent"
     body = _build_request_body(conversation, config)
 
-    # Create a channel for processed chunks
     processed_channel = Channel{NamedTuple}(32)
 
-    query = Dict(
-        "key" => provider.api_key,
-        "alt" => "sse",  # Critical parameter for SSE format
-    )
+    query = Dict("key" => provider.api_key, "alt" => "sse")
 
     url = "$(provider.base_url)/$(provider.api_version)/$endpoint"
     headers = Dict("Content-Type" => "application/json")
 
     @async begin
         try
-            # Use HTTP.open for true streaming
             HTTP.open(
                 "POST", url; headers=headers, query=query, config.http_options...
             ) do stream
-                # Write the request body
                 write(stream, JSON3.write(body))
                 HTTP.closewrite(stream)
 
-                # Start reading the response
                 response = HTTP.startread(stream)
 
                 if response.status >= 400
@@ -445,90 +466,29 @@ function generate_content_stream(
                     throw(ErrorException(error_msg))
                 end
 
-                # Process the SSE stream
-                buffer = IOBuffer()
-                seen_chunks = Set{String}()
-
+                pending = UInt8[]
                 while !eof(stream)
                     chunk = readavailable(stream)
                     if isempty(chunk)
-                        sleep(0.005)  # Small delay to prevent CPU spinning
+                        sleep(0.005)
                         continue
                     end
 
-                    write(buffer, chunk)
-                    seekstart(buffer)
-
-                    while !eof(buffer)
-                        line = readline(buffer; keep=true)
-
-                        # Save partial line for next chunk
-                        if !endswith(line, '\n')
-                            partial = take!(buffer)
-                            write(buffer, partial)
-                            break
-                        end
-
+                    append!(pending, chunk)
+                    for line in _take_lines!(pending)
                         line = strip(line)
-                        if !startswith(line, "data: ")
-                            continue
-                        end
+                        startswith(line, "data: ") || continue
 
-                        # Extract data
                         data_str = SubString(line, 7)  # Remove "data: " prefix
-                        if data_str == "[DONE]"
-                            break
-                        end
+                        data_str == "[DONE]" && continue
 
-                        try
-                            chunk_data = JSON3.read(data_str)
-
-                            # Extract the text from the JSON structure
-                            if !haskey(chunk_data, :candidates) ||
-                                isempty(chunk_data.candidates)
-                                continue
-                            end
-
-                            content = get(chunk_data.candidates[1], :content, nothing)
-                            if content === nothing ||
-                                !haskey(content, :parts) ||
-                                isempty(content.parts)
-                                continue
-                            end
-
-                            # Get the text from the first part
-                            current_text = get(content.parts[1], :text, "")
-                            if current_text in seen_chunks
-                                continue  # Skip duplicate chunks entirely
-                            end
-
-                            # Add this chunk to our seen set
-                            push!(seen_chunks, current_text)
-
-                            # Create a parsed response
-                            finish_reason = get(
-                                chunk_data.candidates[1], :finishReason, nothing
-                            )
-
-                            parsed = (
-                                candidates=chunk_data.candidates,
-                                safety_ratings=get(
-                                    chunk_data, :safetyRatings, Dict{Any,Any}()
-                                ),
-                                text=current_text,
-                                status=response.status,
-                                finish_reason=finish_reason,
-                                usage_metadata=get(
-                                    chunk_data, :usageMetadata, Dict{Symbol,Any}()
-                                ),
-                            )
-
-                            # Send the unique chunk to the channel
-                            put!(processed_channel, parsed)
-
+                        parsed = try
+                            _parse_stream_chunk(data_str, response.status)
                         catch e
                             @warn "Failed to parse chunk: $e"
+                            nothing
                         end
+                        parsed === nothing || put!(processed_channel, parsed)
                     end
                 end
             end
@@ -556,7 +516,6 @@ function generate_content_stream(
                 end
                 full_text = string(full_text, chunk.text)
 
-                # Extract function calls if present in the chunk
                 if haskey(chunk, :candidates) && !isempty(chunk.candidates)
                     content = get(chunk.candidates[1], :content, nothing)
                     if content !== nothing && haskey(content, :parts)
@@ -565,8 +524,6 @@ function generate_content_stream(
                                 fc = part.functionCall
                                 name = get(fc, :name, "")
                                 args_str = get(fc, :args, "{}")
-
-                                # Parse args
                                 args = if typeof(args_str) <: AbstractDict
                                     Dict{String,Any}(
                                         String(k) => v for (k, v) in pairs(args_str)
@@ -584,8 +541,8 @@ function generate_content_stream(
                 combined_chunk = (
                     candidates=chunk.candidates,
                     safety_ratings=chunk.safety_ratings,
-                    text=chunk.text,  # Just the new part
-                    full_text=full_text,  # Full text so far
+                    text=chunk.text,
+                    full_text=full_text,
                     function_calls=isempty(function_calls) ? nothing : function_calls,
                     status=chunk.status,
                     finish_reason=chunk.finish_reason,
