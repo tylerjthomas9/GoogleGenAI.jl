@@ -1,7 +1,28 @@
 abstract type AbstractGoogleProvider end
 
 """
-    GoogleProvider(; api_key::String="", base_url::String="https://generativelanguage.googleapis.com", api_version::String="v1beta")
+    RetryOptions(; attempts=5, initial_delay=1.0, max_delay=60.0, exp_base=2.0, jitter=1.0, http_status_codes=[408, 429, 500, 502, 503, 504])
+
+Retry policy for failed API requests. Pass it to [`GoogleProvider`](@ref) as `retry_options`;
+requests are not retried without it.
+
+A request is tried at most `attempts` times, and only retried when the response status is in
+`http_status_codes`. Before retry `n` the client waits
+`initial_delay * exp_base^(n - 1) + rand() * jitter` seconds, or, when the server says how
+long to wait (a `Retry-After` header or a `RetryInfo` error detail), that long; either way
+at most `max_delay`. Streaming requests are only retried before the first chunk.
+"""
+Base.@kwdef struct RetryOptions
+    attempts::Int = 5
+    initial_delay::Float64 = 1.0
+    max_delay::Float64 = 60.0
+    exp_base::Float64 = 2.0
+    jitter::Float64 = 1.0
+    http_status_codes::Vector{Int} = [408, 429, 500, 502, 503, 504]
+end
+
+"""
+    GoogleProvider(; api_key="", base_url="https://generativelanguage.googleapis.com", api_version="v1beta", retry_options=nothing, http_options=(;))
 
 A configuration object used to set up and authenticate requests to the Google Generative Language API.
 
@@ -9,17 +30,27 @@ A configuration object used to set up and authenticate requests to the Google Ge
 - `api_key::String`: Your Google API key. If not provided, the constructor will automatically check for `GOOGLE_API_KEY` or `GEMINI_API_KEY` environment variables (with `GOOGLE_API_KEY` taking precedence if both are set).
 - `base_url::String`: The base URL for the Google Generative Language API. The default is set to `"https://generativelanguage.googleapis.com"`.
 - `api_version::String`: The version of the API you wish to access. The default is set to `"v1beta"`.
+- `retry_options::Union{Nothing,RetryOptions}`: Retry policy for failed requests; see [`RetryOptions`](@ref). `nothing` disables retries.
+- `http_options::NamedTuple`: Default keyword arguments for every `HTTP.request` call, e.g. `(readtimeout=60,)`. Per-call `http_options`/`http_kwargs` override these.
 """
 struct GoogleProvider <: AbstractGoogleProvider
     api_key::String
     base_url::String
     api_version::String
+    retry_options::Union{Nothing,RetryOptions}
+    http_options::NamedTuple
+end
+
+function GoogleProvider(api_key::String, base_url::String, api_version::String)
+    return GoogleProvider(api_key, base_url, api_version, nothing, (;))
 end
 
 function GoogleProvider(;
     api_key::String=get(ENV, "GOOGLE_API_KEY", get(ENV, "GEMINI_API_KEY", "")),
     base_url::String="https://generativelanguage.googleapis.com",
     api_version::String="v1beta",
+    retry_options::Union{Nothing,RetryOptions}=nothing,
+    http_options::NamedTuple=(;),
 )
     if isempty(api_key)
         error(
@@ -27,29 +58,82 @@ function GoogleProvider(;
         )
     end
 
-    return GoogleProvider(api_key, base_url, api_version)
+    return GoogleProvider(api_key, base_url, api_version, retry_options, http_options)
 end
 
 function Base.show(io::IO, ::MIME"text/plain", provider::GoogleProvider)
     api_key = provider.api_key
-    redacted_key = if length(api_key) > 10
-        "...$(api_key[end-2:end])"
-    else
-        "<hidden>"
-    end
-
+    redacted_key = length(api_key) > 10 ? "...$(api_key[end-2:end])" : "<hidden>"
+    retries = provider.retry_options
     println(io, "GoogleProvider:")
     println(io, "  api_key:     \"$(redacted_key)\"")
     println(io, "  base_url:    \"$(provider.base_url)\"")
-    return print(io, "  api_version: \"$(provider.api_version)\"")
+    println(io, "  api_version: \"$(provider.api_version)\"")
+    return print(
+        io, "  retries:     ", retries === nothing ? "off" : "$(retries.attempts) attempts"
+    )
 end
 
-struct BlockedPromptException <: Exception end
+"""
+    GeminiAPIError <: Exception
 
-function status_error(resp, log=nothing)
-    logs = !isnothing(log) ? ": $log" : ""
-    body = resp.body isa AbstractString ? String(resp.body) : String(copy(resp.body))
-    return error("Request failed with status $(resp.status): $body$logs")
+Thrown when the API answers with an error status.
+
+# Fields
+- `code::Int`: HTTP status code, e.g. `429`.
+- `status::String`: Google RPC status, e.g. `"RESOURCE_EXHAUSTED"`; empty if the body had none.
+- `message::String`: The error message from the API (the raw body if it was not JSON).
+- `details`: The error's `details` array, or `nothing`.
+- `retry_delay::Union{Nothing,Float64}`: Seconds the server asked the client to wait before retrying, if it said.
+"""
+struct GeminiAPIError <: Exception
+    code::Int
+    status::String
+    message::String
+    details::Any
+    retry_delay::Union{Nothing,Float64}
+end
+
+function GeminiAPIError(code::Integer, body::AbstractString, retry_delay=nothing)
+    err = try
+        parsed = JSON3.read(body)
+        parsed isa JSON3.Array && !isempty(parsed) && (parsed = first(parsed))
+        parsed isa JSON3.Object ? get(parsed, :error, parsed) : nothing
+    catch
+        nothing
+    end
+    err isa JSON3.Object || return GeminiAPIError(code, "", body, nothing, retry_delay)
+    details = get(err, :details, nothing)
+    api_code = get(err, :code, code)
+    return GeminiAPIError(
+        api_code isa Integer ? Int(api_code) : Int(code),
+        String(get(err, :status, api_code isa AbstractString ? api_code : "")),
+        String(get(err, :message, body)),
+        details,
+        something(retry_delay, _retry_info_delay(details), Some(nothing)),
+    )
+end
+
+function GeminiAPIError(response::HTTP.Response)
+    retry_after = tryparse(Float64, HTTP.header(response, "Retry-After", ""))
+    return GeminiAPIError(response.status, String(copy(response.body)), retry_after)
+end
+
+function _retry_info_delay(details)
+    details isa AbstractVector || return nothing
+    for detail in details
+        detail isa AbstractDict || continue
+        endswith(string(get(detail, Symbol("@type"), "")), "RetryInfo") || continue
+        m = match(r"^(\d+(?:\.\d+)?)s$", string(get(detail, :retryDelay, "")))
+        m === nothing || return parse(Float64, m[1])
+    end
+    return nothing
+end
+
+function Base.showerror(io::IO, e::GeminiAPIError)
+    print(io, "GeminiAPIError: ", e.code)
+    isempty(e.status) || print(io, " ", e.status)
+    return print(io, ": ", e.message)
 end
 
 const VALID_CATEGORIES = [
@@ -80,11 +164,12 @@ const VALID_THRESHOLDS = [
   - `"HARM_CATEGORY_DANGEROUS_CONTENT"`
   - `"HARM_CATEGORY_CIVIC_INTEGRITY"`
 - `threshold::String`: The sensitivity level for blocking content. Must be one of:
-  - `"BLOCK_NONE"`: 	Block when high probability of unsafe content is detected.
+  - `"BLOCK_NONE"`: Never block.
   - `"BLOCK_ONLY_HIGH"`: Block only content with a high likelihood of harm.
   - `"BLOCK_MEDIUM_AND_ABOVE"`: Block when medium or high probability of unsafe content
   - `"BLOCK_LOW_AND_ABOVE"`: Block when low, medium or high probability of unsafe content
   - `"HARM_BLOCK_THRESHOLD_UNSPECIFIED"`: Threshold is unspecified, block using default threshold
+  - `"OFF"`: Turn the safety filter off.
 """
 Base.@kwdef struct SafetySetting
     category::String
@@ -110,41 +195,112 @@ end
 """
     ToolType
 
-Enum representing the types of native tools supported by the Gemini API.
+The tools the Gemini API provides, as identified by [`is_native_tool`](@ref).
 
 # Values
-- `GOOGLE_SEARCH`: Represents the Google Search tool functionality that allows the model to search for information.
-- `CODE_EXECUTION`: Represents the Code Execution tool which allows the model to execute code snippets.
-- `FUNCTION_CALLING`: Represents the Function Calling capability that enables the model to call user-defined functions.
+- `GOOGLE_SEARCH`: Grounding with Google Search.
+- `CODE_EXECUTION`: The model writes and runs Python code.
+- `FUNCTION_CALLING`: User-defined function declarations.
+- `URL_CONTEXT`: The model reads URLs given in the prompt.
+- `GOOGLE_MAPS`: Grounding with Google Maps.
+- `FILE_SEARCH`: Retrieval from file search stores.
+- `COMPUTER_USE`: The model operates a browser or device through UI actions.
+- `MCP_SERVERS`: Remote MCP servers called by the API.
 """
 @enum ToolType begin
     GOOGLE_SEARCH
     CODE_EXECUTION
     FUNCTION_CALLING
+    URL_CONTEXT
+    GOOGLE_MAPS
+    FILE_SEARCH
+    COMPUTER_USE
+    MCP_SERVERS
+end
+
+const TOOL_KEYS = (
+    "googleSearch" => GOOGLE_SEARCH,
+    "codeExecution" => CODE_EXECUTION,
+    "functionDeclarations" => FUNCTION_CALLING,
+    "urlContext" => URL_CONTEXT,
+    "googleMaps" => GOOGLE_MAPS,
+    "fileSearch" => FILE_SEARCH,
+    "computerUse" => COMPUTER_USE,
+    "mcpServers" => MCP_SERVERS,
+)
+
+"""
+    is_native_tool(tool::AbstractDict) -> Tuple{Bool, Union{ToolType, Nothing}}
+
+Check whether a tool dictionary is one of the API's tools and return its [`ToolType`](@ref).
+"""
+function is_native_tool(tool::AbstractDict)
+    for (key, type) in TOOL_KEYS
+        _key(tool, Symbol(key)) === nothing || return true, type
+    end
+    return false, nothing
+end
+
+function _tool(key; fields...)
+    return Dict{String,Any}(key => _compact((string(k) => v for (k, v) in fields)...))
 end
 
 """
-    is_native_tool(tool::Dict{Symbol, Any}) -> Tuple{Bool, Union{ToolType, Nothing}}
+    google_search_tool()
 
-Check if a tool dictionary represents a native tool and identify its type.
-
-# Arguments
-- `tool::Dict{Symbol, Any}`: The tool dictionary to check
-
-# Returns
-- `Tuple{Bool, Union{ToolType, Nothing}}`: A tuple with a boolean indicating if it's a native tool
-  and the type of the tool if it is native, or nothing if it's not.
+Tool that grounds answers with Google Search.
 """
-function is_native_tool(tool::Dict{Symbol,Any})
-    if haskey(tool, :googleSearch)
-        return true, GOOGLE_SEARCH
-    elseif haskey(tool, :codeExecution)
-        return true, CODE_EXECUTION
-    elseif haskey(tool, :functionDeclarations)
-        return true, FUNCTION_CALLING
-    else
-        return false, nothing
-    end
+google_search_tool() = _tool("googleSearch")
+
+"""
+    code_execution_tool()
+
+Tool that lets the model write and run Python code.
+"""
+code_execution_tool() = _tool("codeExecution")
+
+"""
+    url_context_tool()
+
+Tool that lets the model read the URLs given in the prompt.
+"""
+url_context_tool() = _tool("urlContext")
+
+"""
+    google_maps_tool(; enable_widget=nothing)
+
+Tool that grounds answers with Google Maps. `enable_widget=true` returns a context token for
+rendering a Maps widget.
+"""
+google_maps_tool(; enable_widget=nothing) = _tool("googleMaps"; enableWidget=enable_widget)
+
+"""
+    file_search_tool(store_names; top_k=nothing, metadata_filter=nothing)
+
+Tool that retrieves from the given file search stores (e.g. `"fileSearchStores/abc"`).
+"""
+function file_search_tool(store_names; top_k=nothing, metadata_filter=nothing)
+    return _tool(
+        "fileSearch";
+        fileSearchStoreNames=collect(String, store_names),
+        topK=top_k,
+        metadataFilter=metadata_filter,
+    )
+end
+
+"""
+    computer_use_tool(; environment="ENVIRONMENT_BROWSER", excluded_predefined_functions=nothing)
+
+Tool that lets the model operate a browser (or `"ENVIRONMENT_MOBILE"` device) through UI actions.
+"""
+function computer_use_tool(;
+    environment="ENVIRONMENT_BROWSER", excluded_predefined_functions=nothing
+)
+    return _tool(
+        "computerUse";
+        environment,
+        excludedPredefinedFunctions=excluded_predefined_functions,
+    )
 end
 
 """
@@ -232,24 +388,40 @@ Base.@kwdef struct ToolConfig
     function_calling_config::Union{Nothing,FunctionCallingConfig} = nothing
 end
 
+const THINKING_LEVELS = ("MINIMAL", "LOW", "MEDIUM", "HIGH", "XHIGH")
+
 """
-    ThinkingConfig
+    ThinkingConfig(; include_thoughts=nothing, thinking_budget=nothing, thinking_level=nothing)
 
-Configuration for thinking features in Gemini models.
+Controls the model's internal thinking. Unset fields are left to the model's default.
 
-The Gemini models use an internal "thinking process" during response generation.
-This process contributes to their improved reasoning capabilities and helps them use multi-step 
-planning to solve complex tasks.
-
-For more information, see: https://ai.google.dev/gemini-api/docs/thinking#set-budget
+See https://ai.google.dev/gemini-api/docs/thinking.
 
 # Fields
-- `include_thoughts::Bool`: Indicates whether to include thoughts in the response. If true, thoughts are returned only if the model supports thought and thoughts are available.
-- `thinking_budget::Int`: Indicates the thinking budget in tokens. This limits the amount of internal thinking the model can perform.
+- `include_thoughts::Union{Nothing,Bool}`: Return thought summaries in the response.
+- `thinking_budget::Union{Nothing,Int}`: Thinking budget in tokens (`-1` for dynamic, `0` to turn thinking off where the model allows it). Used by Gemini 2.5 models.
+- `thinking_level::Union{Nothing,String}`: One of `"minimal"`, `"low"`, `"medium"`, `"high"` or `"xhigh"` (case-insensitive). Used by Gemini 3 models.
+
+Set at most one of `thinking_budget` and `thinking_level`.
 """
 Base.@kwdef struct ThinkingConfig
-    include_thoughts::Bool = false
-    thinking_budget::Int = -1
+    include_thoughts::Union{Nothing,Bool} = nothing
+    thinking_budget::Union{Nothing,Int} = nothing
+    thinking_level::Union{Nothing,String} = nothing
+
+    function ThinkingConfig(include_thoughts, thinking_budget, thinking_level)
+        if thinking_level !== nothing
+            thinking_level = uppercase(thinking_level)
+            thinking_level in THINKING_LEVELS || throw(
+                ArgumentError(
+                    "thinking_level must be one of: $(join(lowercase.(THINKING_LEVELS), ", "))",
+                ),
+            )
+            thinking_budget === nothing ||
+                throw(ArgumentError("set only one of thinking_budget and thinking_level"))
+        end
+        return new(include_thoughts, thinking_budget, thinking_level)
+    end
 end
 
 """
@@ -258,9 +430,8 @@ end
 Optional model configuration parameters.
 
 # Fields
-- `http_options=(;)`: Used to override HTTP request options.
-    - All keyword arguments supported by the `HTTP.request` function. Documentation can be found here: https://juliaweb.github.io/HTTP.jl/stable/reference/#HTTP.request.
-- `system_instruction::Union{Nothing,String,Vector{Dict{Symbol,Any}}}`: Instructions for the model.
+- `http_options=(;)`: Keyword arguments passed to `HTTP.request` for this call, overriding the provider's `http_options`. See https://juliaweb.github.io/HTTP.jl/stable/reference/#HTTP.request.
+- `system_instruction`: Instructions for the model: a string, a vector of strings and parts, or a content dict with `parts`.
 - `temperature::Union{Nothing,Float64}`: Controls the degree of randomness in token selection.
 - `top_p::Union{Nothing,Float64}`: Selects tokens from most to least probable until the sum of their probabilities equals this value.
 - `top_k::Union{Nothing,Float64}`: Samples the `top_k` tokens with the highest probabilities at each step.
@@ -273,29 +444,24 @@ Optional model configuration parameters.
 - `frequency_penalty::Union{Nothing,Float64}`: Penalizes tokens that appear repeatedly, increasing diversity.
 - `seed::Union{Nothing,Int}`: Fixed seed for reproducibility; otherwise, a random number is used.
 - `response_mime_type::Union{Nothing,String}`: Output response media type.
-- `response_schema::Union{Nothing,Dict{Symbol,Any}}`: Schema that the generated candidate text must adhere to.
-- `routing_config::Union{Nothing,Dict{Symbol,Any}}`: Configuration for model router requests.
+- `response_schema::Union{Nothing,AbstractDict}`: Schema (OpenAPI subset) that the generated candidate text must adhere to.
+- `response_json_schema::Union{Nothing,AbstractDict}`: A JSON Schema the output must follow. Use instead of `response_schema`.
 - `safety_settings::Union{Nothing,Vector{SafetySetting}}`: Safety settings to block unsafe content.
-- `tools::Union{Nothing,Vector{Any}}`: Enables interaction with external systems.
-    This can include native tools, function declarations, or Functions for automatic schema generation:
-    - Native tools are defined directly, e.g., `Dict(:googleSearch => Dict())`, `Dict(:codeExecution => Dict())`.
-    - Function declarations are included using `Dict(:functionDeclarations => [declarations])`.
-    - Julia Functions can be passed directly for automatic schema generation.
-    - Helper functions are available: `create_google_search_tool()`, `create_code_execution_tool()`, `create_function_tool()`.
+- `tools::Union{Nothing,Vector{Any}}`: Tools the model may use: tool dicts (see [`google_search_tool`](@ref), [`url_context_tool`](@ref), [`code_execution_tool`](@ref), [`google_maps_tool`](@ref), [`file_search_tool`](@ref), [`computer_use_tool`](@ref)), [`FunctionDeclaration`](@ref)s, or Julia functions (declared by name with no parameters).
 - `function_declarations::Union{Nothing,Vector{FunctionDeclaration}}`: Declarations of functions that the model can call.
-    For multi-tool scenarios, consider using the `tools` field instead.
 - `tool_config::Union{Nothing,ToolConfig} = nothing`: Associates model output to a specific function call.
 - `labels::Union{Nothing,Dict{String,String}}`: User-defined metadata labels.
 - `cached_content::Union{Nothing,String}`: Resource name of a context cache.
 - `response_modalities::Union{Nothing,Vector{String}}`: Requested modalities of the response.
 - `media_resolution::Union{Nothing,String}`: Specified media resolution.
-- `speech_config::Union{Nothing,Dict{Symbol,Any}}`: Speech generation configuration.
-- `audio_timestamp::Union{Nothing,Bool}`: Whether to include audio timestamp in the request.
+- `speech_config::Union{Nothing,AbstractDict}`: Speech generation configuration.
 - `thinking_config::Union{Nothing,ThinkingConfig}`: Thinking features configuration.
+- `image_config::Union{Nothing,AbstractDict}`: Image generation options, e.g. `Dict(:aspectRatio => "16:9", :imageSize => "2K")`.
+- `service_tier::Union{Nothing,String}`: Processing tier: `"standard"`, `"flex"` or `"priority"`.
 """
 Base.@kwdef struct GenerateContentConfig
     http_options = (;)
-    system_instruction::Union{Nothing,String} = nothing
+    system_instruction::Union{Nothing,AbstractString,AbstractDict,AbstractVector} = nothing
     temperature::Union{Nothing,Float64} = nothing
     top_p::Union{Nothing,Float64} = nothing
     top_k::Union{Nothing,Float64} = nothing
@@ -308,8 +474,8 @@ Base.@kwdef struct GenerateContentConfig
     frequency_penalty::Union{Nothing,Float64} = nothing
     seed::Union{Nothing,Int} = nothing
     response_mime_type::Union{Nothing,String} = nothing
-    response_schema::Union{Nothing,Dict{Symbol,Any}} = nothing
-    routing_config::Union{Nothing,Dict{Symbol,Any}} = nothing
+    response_schema::Union{Nothing,AbstractDict} = nothing
+    response_json_schema::Union{Nothing,AbstractDict} = nothing
     safety_settings::Union{Nothing,Vector{SafetySetting}} = nothing
     tools::Union{Nothing,Vector{Any}} = nothing
     function_declarations::Union{Nothing,Vector{FunctionDeclaration}} = nothing
@@ -318,88 +484,31 @@ Base.@kwdef struct GenerateContentConfig
     cached_content::Union{Nothing,String} = nothing
     response_modalities::Union{Nothing,Vector{String}} = nothing
     media_resolution::Union{Nothing,String} = nothing
-    speech_config::Union{Nothing,Dict{Symbol,Any}} = nothing
-    audio_timestamp::Union{Nothing,Bool} = nothing
+    speech_config::Union{Nothing,AbstractDict} = nothing
     thinking_config::Union{Nothing,ThinkingConfig} = nothing
-end
-
-# The API key goes in a header, never the URL, so it stays out of logs and errors.
-function _headers(provider::AbstractGoogleProvider)
-    return Dict("Content-Type" => "application/json", "x-goog-api-key" => provider.api_key)
-end
-
-function _request(
-    provider::AbstractGoogleProvider,
-    endpoint::String,
-    method::Symbol,
-    body::Dict;
-    http_kwargs...,
-)
-    if isempty(provider.api_key)
-        throw(ArgumentError("api_key cannot be empty"))
-    end
-
-    url = "$(provider.base_url)/$(provider.api_version)/$endpoint"
-    serialized_body = isempty(body) ? UInt8[] : JSON3.write(body)
-    response = HTTP.request(
-        method, url; headers=_headers(provider), body=serialized_body, http_kwargs...
-    )
-
-    if response.status >= 400
-        status_error(response, String(response.body))
-    end
-    return response
-end
-
-function _extract_text(response::JSON3.Object)
-    all_texts = String[]
-    for candidate in response.candidates
-        candidate_text = join([part.text for part in candidate.content.parts], "")
-        push!(all_texts, candidate_text)
-    end
-    return all_texts
+    image_config::Union{Nothing,AbstractDict} = nothing
+    service_tier::Union{Nothing,String} = nothing
 end
 
 """
     to_api_function_declaration(func_decl::FunctionDeclaration) -> Dict{String, Any}
 
 Converts a FunctionDeclaration to the API-compatible dictionary format.
-
-# Arguments
-- `func_decl::FunctionDeclaration`: The function declaration to convert.
-
-# Returns
-- `Dict{String, Any}`: The API-compatible dictionary.
 """
 function to_api_function_declaration(func_decl::FunctionDeclaration)
-    params = Dict{String,Any}()
-    params["type"] = func_decl.parameters.type
-
-    if func_decl.parameters.description !== nothing
-        params["description"] = func_decl.parameters.description
-    end
-
-    if func_decl.parameters.properties !== nothing
-        params["properties"] = func_decl.parameters.properties
-    end
-
-    if func_decl.parameters.items !== nothing
-        params["items"] = func_decl.parameters.items
-    end
-
-    if func_decl.parameters.required !== nothing
-        params["required"] = func_decl.parameters.required
-    end
-
-    decl = Dict{String,Any}()
-    decl["name"] = func_decl.name
-
-    if func_decl.description !== nothing
-        decl["description"] = func_decl.description
-    end
-
-    decl["parameters"] = params
-    return decl
+    p = func_decl.parameters
+    params = _compact(
+        "type" => p.type,
+        "description" => p.description,
+        "properties" => p.properties,
+        "items" => p.items,
+        "required" => p.required,
+    )
+    return _compact(
+        "name" => func_decl.name,
+        "description" => func_decl.description,
+        "parameters" => params,
+    )
 end
 
 # `GenerateContentConfig` field => `generationConfig` API key.
@@ -417,64 +526,28 @@ const GENERATION_CONFIG_FIELDS = (
     :seed => "seed",
     :response_mime_type => "responseMimeType",
     :response_schema => "responseSchema",
+    :response_json_schema => "responseJsonSchema",
     :response_modalities => "responseModalities",
-    :routing_config => "routingConfig",
     :media_resolution => "mediaResolution",
     :speech_config => "speechConfig",
-    :audio_timestamp => "audioTimestamp",
     :thinking_config => "thinkingConfig",
+    :image_config => "imageConfig",
 )
 
-"""
-Extract generation config parameters from the config
-"""
+_api_value(x) = x
+function _api_value(c::ThinkingConfig)
+    return _compact(
+        "includeThoughts" => c.include_thoughts,
+        "thinkingBudget" => c.thinking_budget,
+        "thinkingLevel" => c.thinking_level,
+    )
+end
+
 function _build_generation_config(config::GenerateContentConfig)
     generation_config = Dict{String,Any}()
     for (field, key) in GENERATION_CONFIG_FIELDS
         value = getfield(config, field)
-        value === nothing || (generation_config[key] = value)
+        value === nothing || (generation_config[key] = _api_value(value))
     end
     return generation_config
 end
-
-"""
-    list_models(provider::AbstractGoogleProvider) -> Vector{Dict}
-    list_models(api_key::String) -> Vector{Dict}
-    list_models() -> Vector{Dict}
-
-Retrieve a list of available models along with their details from the Google AI API.
-
-# Arguments
-- `provider::AbstractGoogleProvider`: The provider instance containing API key and base URL information.
-- `api_key::String`: Your Google API key as a string. 
-
-# Returns
-- `Vector{Dict}`: A list of dictionaries, each containing details about an available model.
-"""
-function list_models(provider::AbstractGoogleProvider)
-    endpoint = "models"
-    response = _request(provider, endpoint, :GET, Dict())
-    parsed_response = JSON3.read(response.body)
-
-    if !haskey(parsed_response, :models)
-        return Vector{Dict}()
-    end
-    models = [
-        Dict(
-            :name => replace(model.name, "models/" => ""),
-            :version => model.version,
-            :display_name => model.displayName,
-            :description => get(model, :description, nothing),
-            :prompt_token_limit => model.inputTokenLimit,
-            :output_token_limit => model.outputTokenLimit,
-            :supported_generation_methods => model.supportedGenerationMethods,
-            :temperature => get(model, :temperature, nothing),
-            :topP => get(model, :topP, nothing),
-            :topK => get(model, :topK, nothing),
-        ) for model in parsed_response.models
-    ]
-    return models
-end
-
-list_models(api_key::String) = list_models(GoogleProvider(; api_key))
-list_models() = list_models(GoogleProvider())

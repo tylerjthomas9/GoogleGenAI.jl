@@ -1,224 +1,156 @@
-"""
-    create_cached_content(
-        provider::AbstractGoogleProvider,
-        model_name::String,
-        content::Union{String,Vector{Dict{Symbol,Any}},Dict{String,Any}};
-        ttl::String="300s",
-        system_instruction::String="",
-        http_kwargs=NamedTuple()
-    ) -> JSON3.Object
-    create_cached_content(
-        api_key::String,
-        model_name::String,
-        content::Union{String,Vector{Dict{Symbol,Any}},Dict{String,Any}};
-        ttl::String="300s",
-        system_instruction::String="",
-        http_kwargs=NamedTuple()
-    ) -> JSON3.Object
+_timestamp(t::AbstractString) = t
+_timestamp(t::DateTime) = Dates.format(t, dateformat"yyyy-mm-ddTHH:MM:SS.sss") * "Z"
 
-Create a cached content resource that can be reused in subsequent requests.
+function _expiration(ttl, expire_time)
+    ttl === nothing ||
+        expire_time === nothing ||
+        throw(ArgumentError("set only one of `ttl` and `expire_time`"))
+    expire_time === nothing ||
+        return Dict{String,Any}("expireTime" => _timestamp(expire_time))
+    return _compact("ttl" => ttl)
+end
+
+"""
+    create_cached_content([provider | api_key], model_name, content; ttl=nothing, expire_time=nothing, display_name=nothing, system_instruction=nothing, tools=nothing, tool_config=nothing, http_kwargs=NamedTuple()) -> JSON3.Object
+
+Create a cached content resource that can be reused in later requests through
+`GenerateContentConfig(cached_content=...)`.
 
 # Arguments
-- `provider::AbstractGoogleProvider` or `api_key::String`: The provider instance for API requests or your Google API key as a string.
-- `model_name::String`: The model to use (e.g. "gemini-2.5-flash-lite").
-- `content::Union{String,Vector{Dict{Symbol,Any}},Dict{String,Any}}`: The content to cache, which can be a single string, an array of conversation messages, or a raw content dictionary.
-- `ttl::String`: Time-to-live duration for the cache. Defaults to `"300s"`.
-- `system_instruction::String`: An optional system instruction for the model.
+- `model_name::String`: The model to use (e.g. "gemini-3.5-flash-lite").
+- `content`: What to cache: anything [`generate_content`](@ref) accepts as `contents`.
 
-# HTTP Kwargs
-- All keyword arguments supported by the `HTTP.request` function. Documentation can be found here: https://juliaweb.github.io/HTTP.jl/stable/reference/#HTTP.request.
+# Keyword Arguments
+- `ttl::String`: How long to keep the cache, e.g. `"300s"`. Defaults to `"300s"` when
+  `expire_time` is not set either.
+- `expire_time`: When the cache expires, as a UTC `DateTime` or an RFC 3339 string.
+- `display_name::String`: A human-readable name for the cache.
+- `system_instruction`: A system instruction to cache, in any form `GenerateContentConfig` accepts.
+- `tools`, `tool_config`: Tools to cache, in the same forms as `GenerateContentConfig`.
+- `http_kwargs`: Keyword arguments passed to `HTTP.request`.
 
 # Returns
-- `JSON3.Object`: A JSON object containing the metadata of the created cached content resource, including its cache name.
+The created cache's metadata; its `name` (e.g. `"cachedContents/abc"`) identifies it.
 """
 function create_cached_content(
     provider::AbstractGoogleProvider,
     model_name::String,
-    content::Union{String,Vector{Dict{Symbol,Any}},Dict{String,Any}};
-    ttl::String="300s",
-    system_instruction::String="",
+    content;
+    ttl::Union{Nothing,String}=nothing,
+    expire_time::Union{Nothing,DateTime,AbstractString}=nothing,
+    display_name::Union{Nothing,String}=nothing,
+    system_instruction=nothing,
+    tools=nothing,
+    tool_config::Union{Nothing,ToolConfig}=nothing,
     http_kwargs=NamedTuple(),
 )
-    endpoint = "cachedContents"
-
-    # Prepare the content structure
-    contents = if content isa String
-        [Dict("parts" => [Dict("text" => content)], "role" => "user")]
-    elseif content isa Vector
-        content
-    else
-        [content]  # Assume it's already formatted properly
-    end
-
-    body = Dict{String,Any}(
-        "model" => "models/$model_name", "contents" => contents, "ttl" => ttl
+    expire_time === nothing && ttl === nothing && (ttl = "300s")
+    body = merge(
+        _expiration(ttl, expire_time),
+        _compact(
+            "model" => _model_path(model_name),
+            "contents" => _to_contents(content),
+            "displayName" => display_name,
+            "systemInstruction" => _system_instruction(system_instruction),
+            "toolConfig" => _build_tool_config(tool_config),
+        ),
     )
-
-    if !isempty(system_instruction)
-        body["systemInstruction"] = Dict("parts" => [Dict("text" => system_instruction)])
-    end
-
-    response = _request(provider, endpoint, :POST, body; http_kwargs...)
-    return JSON3.read(response.body)
+    built_tools = _build_tools(tools)
+    isempty(built_tools) || (body["tools"] = built_tools)
+    return _request_json(provider, "cachedContents", :POST, body; http_kwargs...)
 end
 
-function create_cached_content(
-    api_key::String,
-    model_name::String,
-    content::Union{String,Vector{Dict{Symbol,Any}},Dict{String,Any}};
-    ttl::String="300s",
-    system_instruction::String="",
-    http_kwargs=NamedTuple(),
-)
-    return create_cached_content(
-        GoogleProvider(; api_key), model_name, content; ttl, system_instruction, http_kwargs
-    )
+function create_cached_content(api_key::String, model_name::String, content; kwargs...)
+    return create_cached_content(GoogleProvider(; api_key), model_name, content; kwargs...)
 end
 
-function create_cached_content(
-    model_name::String,
-    content::Union{String,Vector{Dict{Symbol,Any}},Dict{String,Any}};
-    ttl::String="300s",
-    system_instruction::String="",
-    http_kwargs=NamedTuple(),
-)
-    return create_cached_content(
-        GoogleProvider(), model_name, content; ttl, system_instruction, http_kwargs
-    )
+function create_cached_content(model_name::String, content; kwargs...)
+    return create_cached_content(GoogleProvider(), model_name, content; kwargs...)
 end
 
 """
-    list_cached_content(provider::AbstractGoogleProvider; http_kwargs=NamedTuple()) -> JSON3.Array
-    list_cached_content(api_key::String; http_kwargs=NamedTuple()) -> JSON3.Array
+    list_cached_content([provider | api_key]; http_kwargs=NamedTuple()) -> Vector
 
-Lists the cache metadata for all your cached content. (Does not return the cached content itself.)
-
-# Arguments
-- `provider::AbstractGoogleProvider` or `api_key::String`: The provider instance for API requests or your Google API key as a string.
-
-# HTTP Kwargs
-- All keyword arguments supported by the `HTTP.request` function. Documentation can be found here: https://juliaweb.github.io/HTTP.jl/stable/reference/#HTTP.request.
-
-# Returns
-- `JSON3.Array`: A JSON array of objects, where each object represents a cached content resource's metadata.
+Lists the metadata of all your cached content, fetching all pages. The cached content itself
+is not returned.
 """
 function list_cached_content(provider::AbstractGoogleProvider; http_kwargs=NamedTuple())
-    endpoint = "cachedContents"
-    response = _request(provider, endpoint, :GET, Dict(); http_kwargs...)
-    parsed = JSON3.read(response.body)
-
-    if haskey(parsed, :cachedContents)
-        return parsed[:cachedContents]
-    else
-        return JSON3.Array[]
-    end
+    return _paginate(
+        provider, "cachedContents", :cachedContents; page_size=1000, http_kwargs...
+    )
 end
 
-function list_cached_content(api_key::String; http_kwargs=NamedTuple())
-    return list_cached_content(GoogleProvider(; api_key); http_kwargs)
+function list_cached_content(api_key::String; kwargs...)
+    return list_cached_content(GoogleProvider(; api_key); kwargs...)
 end
-
-list_cached_content() = list_cached_content(GoogleProvider())
+list_cached_content(; kwargs...) = list_cached_content(GoogleProvider(); kwargs...)
 
 """
-    get_cached_content(provider::AbstractGoogleProvider, cache_name::String; http_kwargs=NamedTuple()) -> JSON3.Object
-    get_cached_content(api_key::String, cache_name::String; http_kwargs=NamedTuple()) -> JSON3.Object
+    get_cached_content([provider | api_key], cache_name; http_kwargs=NamedTuple()) -> JSON3.Object
 
-Retrieve the metadata for a single cached content resource by its resource name.
-
-# Arguments
-- `provider::AbstractGoogleProvider` or `api_key::String`: The provider instance for API requests or your Google API key as a string.
-- `cache_name::String`: The full resource name of the cached content (e.g. "cachedContents/12345").
-
-# HTTP Kwargs
-- All keyword arguments supported by the `HTTP.request` function. Documentation can be found here: https://juliaweb.github.io/HTTP.jl/stable/reference/#HTTP.request.
-
-# Returns
-- `JSON3.Object`: A JSON object containing the metadata for the specified cached content.
+Retrieve the metadata for one cached content resource by its name (e.g. "cachedContents/12345").
 """
 function get_cached_content(
     provider::AbstractGoogleProvider, cache_name::String; http_kwargs=NamedTuple()
 )
-    # The resource name is the entire "cachedContents/..." path
-    response = _request(provider, cache_name, :GET, Dict(); http_kwargs...)
-    return JSON3.read(response.body)
+    return _request_json(provider, cache_name, :GET; http_kwargs...)
 end
 
-function get_cached_content(api_key::String, cache_name::String; http_kwargs=NamedTuple())
-    return get_cached_content(GoogleProvider(; api_key), cache_name; http_kwargs)
+function get_cached_content(api_key::String, cache_name::String; kwargs...)
+    return get_cached_content(GoogleProvider(; api_key), cache_name; kwargs...)
 end
 
-function get_cached_content(cache_name::String; http_kwargs=NamedTuple())
-    return get_cached_content(GoogleProvider(), cache_name; http_kwargs)
+function get_cached_content(cache_name::String; kwargs...)
+    return get_cached_content(GoogleProvider(), cache_name; kwargs...)
 end
 
 """
-    update_cached_content(provider::AbstractGoogleProvider, cache_name::String, ttl::String; http_kwargs=NamedTuple()) -> JSON3.Object
-    update_cached_content(api_key::String, cache_name::String, ttl::String, http_kwargs=NamedTuple()) -> JSON3.Object
+    update_cached_content(provider, cache_name, ttl=nothing; expire_time=nothing, http_kwargs=NamedTuple()) -> JSON3.Object
+    update_cached_content(api_key, cache_name, ttl; expire_time=nothing, http_kwargs=NamedTuple()) -> JSON3.Object
+    update_cached_content(cache_name, ttl=nothing; expire_time=nothing, http_kwargs=NamedTuple()) -> JSON3.Object
 
-Update the TTL of an existing cached content resource. Attempts to change other fields are not supported.
-
-# Arguments
-- `provider::AbstractGoogleProvider` or `api_key::String`: The provider instance for API requests or your Google API key as a string.
-- `cache_name::String`: The full resource name of the cached content (e.g. "cachedContents/xyz123").
-- `ttl::String`: The new time-to-live value. Defaults to "600s".
-
-# HTTP Kwargs
-- All keyword arguments supported by the `HTTP.request` function. Documentation can be found here: https://juliaweb.github.io/HTTP.jl/stable/reference/#HTTP.request.
-
-# Returns
-- `JSON3.Object`: A JSON object containing the updated metadata for the cached content.
+Change when a cache expires: pass a new `ttl` (e.g. `"600s"`) or an `expire_time` (UTC
+`DateTime` or RFC 3339 string). Other fields cannot be updated. Returns the updated metadata.
 """
 function update_cached_content(
     provider::AbstractGoogleProvider,
     cache_name::String,
-    ttl::String;
+    ttl::Union{Nothing,String}=nothing;
+    expire_time::Union{Nothing,DateTime,AbstractString}=nothing,
     http_kwargs=NamedTuple(),
 )
-    body = Dict("ttl" => ttl)
-    response = _request(provider, cache_name, :PATCH, body; http_kwargs...)
-    return JSON3.read(response.body)
+    body = _expiration(ttl, expire_time)
+    isempty(body) && throw(ArgumentError("pass a `ttl` or an `expire_time`"))
+    return _request_json(provider, cache_name, :PATCH, body; http_kwargs...)
 end
 
 function update_cached_content(
-    api_key::String, cache_name::String, ttl::String; http_kwargs=NamedTuple()
+    api_key::String, cache_name::String, ttl::Union{Nothing,String}; kwargs...
 )
-    return update_cached_content(GoogleProvider(; api_key), cache_name, ttl; http_kwargs)
+    return update_cached_content(GoogleProvider(; api_key), cache_name, ttl; kwargs...)
 end
 
-function update_cached_content(cache_name::String, ttl::String; http_kwargs=NamedTuple())
-    return update_cached_content(GoogleProvider(), cache_name, ttl; http_kwargs)
+function update_cached_content(
+    cache_name::String, ttl::Union{Nothing,String}=nothing; kwargs...
+)
+    return update_cached_content(GoogleProvider(), cache_name, ttl; kwargs...)
 end
 
 """
-    delete_cached_content(provider::AbstractGoogleProvider, cache_name::String; http_kwargs=NamedTuple()) -> Int
-    delete_cached_content(api_key::String, cache_name::String; http_kwargs=NamedTuple()) -> Int
+    delete_cached_content([provider | api_key], cache_name; http_kwargs=NamedTuple()) -> Int
 
-Delete a cached content resource by its resource name.
-
-# Arguments
-- `provider::AbstractGoogleProvider` or `api_key::String`: The provider instance for API requests or your Google API key as a string.
-- `cache_name::String`: The full resource name of the cached content (e.g. "cachedContents/xyz123").
-
-# HTTP Kwargs
-- All keyword arguments supported by the `HTTP.request` function. Documentation can be found here: https://juliaweb.github.io/HTTP.jl/stable/reference/#HTTP.request.
-
-# Returns
-- `Int`: The HTTP status code of the deletion request.
+Delete a cached content resource by its name and return the HTTP status code.
 """
 function delete_cached_content(
     provider::AbstractGoogleProvider, cache_name::String; http_kwargs=NamedTuple()
 )
-    response = _request(provider, cache_name, :DELETE, Dict(); http_kwargs...)
-    return response.status
+    return _request(provider, cache_name, :DELETE; http_kwargs...).status
 end
 
-function delete_cached_content(
-    api_key::String, cache_name::String; http_kwargs=NamedTuple()
-)
-    return delete_cached_content(GoogleProvider(; api_key), cache_name; http_kwargs)
+function delete_cached_content(api_key::String, cache_name::String; kwargs...)
+    return delete_cached_content(GoogleProvider(; api_key), cache_name; kwargs...)
 end
 
-function delete_cached_content(cache_name::String; http_kwargs=NamedTuple())
-    return delete_cached_content(GoogleProvider(), cache_name; http_kwargs)
+function delete_cached_content(cache_name::String; kwargs...)
+    return delete_cached_content(GoogleProvider(), cache_name; kwargs...)
 end

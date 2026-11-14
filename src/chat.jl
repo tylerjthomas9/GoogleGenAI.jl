@@ -29,9 +29,9 @@ Create a persistent chat session. Equivalent to `client.chats.create(...)` in Py
 
 # Keyword Arguments
 - `config::GenerateContentConfig`: Configuration applied to every message.
-- `functions::Dict{String, <:Function}`: Functions the model may call; when non-empty,
-  function calls returned by the model are executed automatically and their results
-  fed back until the model produces a final answer.
+- `functions::Dict{String, <:Function}`: Implementations, by name, of the functions declared
+  in `config`; when non-empty, function calls returned by the model are executed
+  automatically and their results fed back until the model produces a final answer.
 - `history::Vector{Dict{Symbol,Any}}`: Optional initial conversation history.
 
 # Examples
@@ -59,16 +59,8 @@ create_chat(model::String; kwargs...) = create_chat(GoogleProvider(), model; kwa
 function Base.show(io::IO, ::MIME"text/plain", chat::Chat)
     println(io, "Chat:")
     println(io, "  model:   \"$(chat.model)\"")
-    println(io, "  turns:   $(count(entry -> entry[:role] == "user", chat.history))")
+    println(io, "  turns:   $(count(entry -> _key(entry, :role) == "user", chat.history))")
     return print(io, "  history: $(length(chat.history)) entries")
-end
-
-function _user_message(
-    prompt::String; image_path::String="", images::AbstractVector=NamedTuple[]
-)
-    parts = Dict{String,Any}[Dict("text" => prompt)]
-    append!(parts, _image_inline_parts(; image_path, images))
-    return Dict(:role => "user", :parts => parts)
 end
 
 function _content_parts(response)::Union{Nothing,Vector{Dict{Symbol,Any}}}
@@ -79,6 +71,12 @@ function _content_parts(response)::Union{Nothing,Vector{Dict{Symbol,Any}}}
     return [
         Dict{Symbol,Any}(Symbol(k) => v for (k, v) in pairs(part)) for part in content.parts
     ]
+end
+
+function _model_turn(parts)
+    return Dict{Symbol,Any}(
+        :role => "model", :parts => something(parts, Dict{Symbol,Any}[])
+    )
 end
 
 function _is_text_part(part)
@@ -107,13 +105,12 @@ function _append_stream_parts!(parts::Vector{Dict{Symbol,Any}}, chunk)
 end
 
 function _record_function_exchange!(
-    conversation::Vector{<:Dict},
+    conversation::Vector,
     functions::Dict{String,Function},
-    model_parts::Vector{<:Dict},
+    model_parts,
     function_calls::Vector,
 )
-    push!(conversation, Dict(:role => "model", :parts => model_parts))
-
+    push!(conversation, _model_turn(model_parts))
     response_parts = [
         Dict(
             :functionResponse => Dict(
@@ -122,24 +119,58 @@ function _record_function_exchange!(
             ),
         ) for fc in function_calls
     ]
-    push!(conversation, Dict(:role => "user", :parts => response_parts))
+    push!(conversation, Dict{Symbol,Any}(:role => "user", :parts => response_parts))
     return conversation
 end
 
+function _is_valid_turn(turn)
+    parts = _key(turn, :parts)
+    return parts !== nothing && !isempty(parts) && all(!isempty, parts)
+end
+
+# Drops model replies that came back empty, along with the user turn that prompted them.
+function _curated_history(history)
+    curated = Dict{Symbol,Any}[]
+    i = 1
+    while i <= length(history)
+        if _key(history[i], :role) != "model"
+            push!(curated, history[i])
+            i += 1
+            continue
+        end
+        j = i
+        while j <= length(history) && _key(history[j], :role) == "model"
+            j += 1
+        end
+        replies = history[i:(j - 1)]
+        if all(_is_valid_turn, replies)
+            append!(curated, replies)
+        elseif !isempty(curated)
+            pop!(curated)
+        end
+        i = j
+    end
+    return curated
+end
+
+function _user_turns(message, image_path, images)
+    return Dict{Symbol,Any}[_with_media(message, image_path, images)...]
+end
+
 """
-    send_message(chat, prompt; image_path="", images=NamedTuple[], config=nothing) -> NamedTuple
+    send_message(chat, message; image_path="", images=NamedTuple[], config=nothing) -> NamedTuple
 
-Send a message in the chat session, appending both the user message and the model
-response to the session history. When the chat was created with `functions`,
-returned function calls are executed automatically and their results sent back to
-the model until a final answer is produced.
+Send a message in a chat session and return the model's response.
 
-# Arguments
-- `prompt::String`: The user message.
+`message` is a string or anything else [`generate_content`](@ref) accepts as `contents`.
+When the chat was created with `functions`, function calls are executed automatically and
+their results sent back until the model answers. Every turn, including function calls,
+function results and replies that came back empty, is added to the history; see
+[`get_history`](@ref).
 
 # Keyword Arguments
 - `image_path::String`: Optional path to an image to attach.
-- `images::AbstractVector`: Optional additional images (NamedTuples with `path` or `data`).
+- `images::AbstractVector`: Optional additional media (NamedTuples with `path` or `data`).
 - `config::Union{Nothing,GenerateContentConfig}`: Per-message override of the chat config.
 
 # Returns
@@ -147,112 +178,85 @@ the model until a final answer is produced.
 """
 function send_message(
     chat::Chat,
-    prompt::String;
+    message;
     image_path::String="",
     images::AbstractVector=NamedTuple[],
     config::Union{Nothing,GenerateContentConfig}=nothing,
 )
     active_config = something(config, chat.config)
-    user_message = _user_message(prompt; image_path, images)
-    conversation = vcat(chat.history, [user_message])
-
-    response = generate_content(
-        chat.provider, chat.model, conversation; config=active_config
+    turns = _user_turns(message, image_path, images)
+    ask() = generate_content(
+        chat.provider,
+        chat.model,
+        [_curated_history(chat.history); turns];
+        config=active_config,
     )
 
+    response = ask()
     for _ in 2:MAX_FUNCTION_CALL_ROUNDS
         (response.function_calls === nothing || isempty(chat.functions)) && break
-        model_parts = _content_parts(response)
-        model_parts === nothing && break
         _record_function_exchange!(
-            conversation, chat.functions, model_parts, response.function_calls
+            turns, chat.functions, _content_parts(response), response.function_calls
         )
-        response = generate_content(
-            chat.provider, chat.model, conversation; config=active_config
-        )
+        response = ask()
     end
-
     if response.function_calls !== nothing && !isempty(chat.functions)
         @warn "Maximum automatic function calling rounds reached"
     end
 
-    append!(chat.history, [user_message])
-    model_parts = _content_parts(response)
-    if model_parts !== nothing
-        append!(chat.history, [Dict(:role => "model", :parts => model_parts)])
-    end
-
+    push!(turns, _model_turn(_content_parts(response)))
+    append!(chat.history, turns)
     return response
 end
 
 """
-    send_message_stream(chat, prompt; image_path="", images=NamedTuple[], config=nothing) -> Channel
+    send_message_stream(chat, message; image_path="", images=NamedTuple[], config=nothing) -> Channel
 
-Streaming variant of `send_message`. Yields the same named tuples as
-`generate_content_stream`, including cumulative `full_text`. If the chat was
-created with `functions`, streamed function-call rounds are handled automatically
-and their chunks yielded too; history is updated once everything completes.
+Streaming version of [`send_message`](@ref): yields the same chunks as
+[`generate_content_stream`](@ref). With registered `functions`, follow-up rounds are streamed
+and their chunks yielded too; the history is updated once the reply is complete, and left
+unchanged if the request fails.
 """
 function send_message_stream(
     chat::Chat,
-    prompt::String;
+    message;
     image_path::String="",
     images::AbstractVector=NamedTuple[],
     config::Union{Nothing,GenerateContentConfig}=nothing,
 )
     active_config = something(config, chat.config)
-    user_message = _user_message(prompt; image_path, images)
-    conversation = vcat(chat.history, [user_message])
+    turns = _user_turns(message, image_path, images)
+    channel = Channel{NamedTuple}(32)
 
-    result_channel = Channel{NamedTuple}(32)
-
-    @async begin
-        try
-            rounds = 0
-            aborted = false
-            while true
-                model_parts = Dict{Symbol,Any}[]
-                function_calls = nothing
-                for chunk in generate_content_stream(
-                    chat.provider, chat.model, conversation; config=active_config
-                )
-                    if haskey(chunk, :error)
-                        put!(result_channel, chunk)
-                        aborted = true
-                        break
-                    end
-                    haskey(chunk, :full_text) || continue
-                    _append_stream_parts!(model_parts, chunk)
-                    chunk.function_calls !== nothing &&
-                        (function_calls = chunk.function_calls)
-                    put!(result_channel, chunk)
-                    chunk.finish_reason !== nothing && break
-                end
-                aborted && break
-                rounds += 1
-
-                if function_calls === nothing ||
-                    isempty(chat.functions) ||
-                    rounds >= MAX_FUNCTION_CALL_ROUNDS
-                    isempty(model_parts) &&
-                        push!(model_parts, Dict{Symbol,Any}(:text => ""))
-                    push!(chat.history, user_message)
-                    push!(chat.history, Dict(:role => "model", :parts => model_parts))
-                    break
-                end
-
-                _record_function_exchange!(
-                    conversation, chat.functions, model_parts, function_calls
-                )
+    @async try
+        for round in 1:MAX_FUNCTION_CALL_ROUNDS
+            parts = Dict{Symbol,Any}[]
+            function_calls = nothing
+            conversation = [_curated_history(chat.history); turns]
+            for chunk in generate_content_stream(
+                chat.provider, chat.model, conversation; config=active_config
+            )
+                put!(channel, chunk)
+                haskey(chunk, :error) && return nothing
+                _append_stream_parts!(parts, chunk)
+                function_calls = chunk.function_calls
             end
-        catch e
-            put!(result_channel, (error=e, text="", finish_reason="ERROR", is_final=true))
-        finally
-            close(result_channel)
+            if function_calls === nothing ||
+                isempty(chat.functions) ||
+                round == MAX_FUNCTION_CALL_ROUNDS
+                push!(turns, _model_turn(parts))
+                append!(chat.history, turns)
+                return nothing
+            end
+            _record_function_exchange!(turns, chat.functions, parts, function_calls)
         end
+    catch e
+        put!(channel, _error_chunk(e))
+    finally
+        close(channel)
     end
 
-    return result_channel
+    return channel
 end
 
 """
@@ -260,17 +264,13 @@ end
 
 Return the conversation history of the chat session.
 
-With `curated=true`, intermediate function-call exchanges are filtered out,
-matching the behavior of `chats[].get_history(curated=True)` in the Python SDK.
+The full history has every turn, including function calls, function results and model
+replies that came back empty (e.g. when blocked). With `curated=true`, empty replies and the
+user turns that prompted them are left out; this is the history sent with each new message,
+matching `chat.get_history(curated=True)` in the Python SDK.
 """
 function get_history(chat::Chat; curated::Bool=false)
-    curated || return copy(chat.history)
-    return [
-        entry for entry in chat.history if !any(
-            part -> haskey(part, :functionCall) || haskey(part, :functionResponse),
-            entry[:parts],
-        )
-    ]
+    return curated ? _curated_history(chat.history) : copy(chat.history)
 end
 
 """

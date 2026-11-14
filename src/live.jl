@@ -8,7 +8,8 @@ const LIVE_SETUP_TIMEOUT = 30.0 # seconds
     LiveSession
 
 A bidirectional streaming session with the Gemini Live API.
-Created via [`connect_live`](@ref); events arrive on `session.events`.
+Created via [`connect_live`](@ref); events arrive on `session.events`. With session
+resumption on, `session.resumption_handle` holds the latest handle for resuming later.
 """
 mutable struct LiveSession
     provider::AbstractGoogleProvider
@@ -20,6 +21,22 @@ mutable struct LiveSession
     ws_ref::Base.RefValue{Any} # underlying HTTP.WebSockets connection
     setup_complete::Bool
     closed::Bool
+    resumption_handle::Union{Nothing,String}
+end
+
+function LiveSession(provider, model, config, functions)
+    return LiveSession(
+        provider,
+        model,
+        config,
+        Dict{String,Function}(functions),
+        Channel{String}(Inf),
+        Channel{Dict{Symbol,Any}}(64),
+        Base.RefValue{Any}(nothing),
+        false,
+        false,
+        nothing,
+    )
 end
 
 """
@@ -35,46 +52,46 @@ function _live_websocket_url(provider::AbstractGoogleProvider)
     return "$scheme://$host_port/ws/$path"
 end
 
+_live_option(enabled::Bool) = enabled ? Dict{String,Any}() : nothing
+_live_option(::Nothing) = nothing
+_live_option(options::AbstractDict) = options
+
+_session_resumption(handle::AbstractString) = Dict{String,Any}("handle" => handle)
+_session_resumption(enabled) = _live_option(enabled)
+
+function _context_window_compression(enabled::Bool)
+    return enabled ? Dict{String,Any}("slidingWindow" => Dict{String,Any}()) : nothing
+end
+_context_window_compression(options) = _live_option(options)
+
 """
-    _build_live_setup(model, config::GenerateContentConfig) -> Dict{String,Any}
+    _build_live_setup(model, config::GenerateContentConfig; ...) -> Dict{String,Any}
 
 Build the `setup` message sent immediately after the WebSocket opens.
 """
-function _build_live_setup(model::String, config::GenerateContentConfig)
-    setup = Dict{String,Any}("model" => "models/$model")
-
-    generation_config = Dict{String,Any}()
-    config.response_modalities !== nothing &&
-        (generation_config["responseModalities"] = config.response_modalities)
-    config.temperature !== nothing &&
-        (generation_config["temperature"] = config.temperature)
-    config.top_p !== nothing && (generation_config["topP"] = config.top_p)
-    config.top_k !== nothing && (generation_config["topK"] = config.top_k)
-    config.max_output_tokens !== nothing &&
-        (generation_config["maxOutputTokens"] = config.max_output_tokens)
-    config.media_resolution !== nothing &&
-        (generation_config["mediaResolution"] = config.media_resolution)
-    config.speech_config !== nothing &&
-        (generation_config["speechConfig"] = string_key_dict(config.speech_config))
-    config.audio_timestamp !== nothing &&
-        (generation_config["audioTimestamp"] = config.audio_timestamp)
-    isempty(generation_config) || (setup["generationConfig"] = generation_config)
-
-    if config.system_instruction !== nothing
-        setup["systemInstruction"] = _format_system_instruction(config.system_instruction)
-    end
-
-    tools = _build_tools(config)
-    isempty(tools) || (setup["tools"] = tools)
-
-    tool_config = _build_tool_config(config)
-    tool_config !== nothing && (setup["toolConfig"] = tool_config)
-
-    if config.cached_content !== nothing
-        setup["cachedContent"] = config.cached_content
-    end
-
-    return setup
+function _build_live_setup(
+    model::String,
+    config::GenerateContentConfig;
+    input_audio_transcription::Bool=false,
+    output_audio_transcription::Bool=false,
+    session_resumption=nothing,
+    context_window_compression=nothing,
+    realtime_input_config::Union{Nothing,AbstractDict}=nothing,
+)
+    setup = _build_request_body(nothing, config)
+    delete!(setup, "serviceTier")
+    setup["model"] = _model_path(model)
+    return merge!(
+        setup,
+        _compact(
+            "inputAudioTranscription" => _live_option(input_audio_transcription),
+            "outputAudioTranscription" => _live_option(output_audio_transcription),
+            "sessionResumption" => _session_resumption(session_resumption),
+            "contextWindowCompression" =>
+                _context_window_compression(context_window_compression),
+            "realtimeInputConfig" => realtime_input_config,
+        ),
+    )
 end
 
 function _send_frame(session::LiveSession, msg::AbstractDict)
@@ -82,7 +99,7 @@ function _send_frame(session::LiveSession, msg::AbstractDict)
 end
 
 """
-    connect_live(provider, model; config=GenerateContentConfig(), functions=Dict{String,Function}()) -> LiveSession
+    connect_live(provider, model; config=GenerateContentConfig(), functions=Dict{String,Function}(), setup_options...) -> LiveSession
     connect_live(api_key, model; kwargs...) -> LiveSession
     connect_live(model; kwargs...) -> LiveSession
 
@@ -92,9 +109,21 @@ with `setupComplete`, then returns a [`LiveSession`](@ref).
 
 Keyword arguments:
 - `config::GenerateContentConfig`: e.g. `response_modalities=["AUDIO"]` for voice output,
-  plus `speech_config`, `system_instruction`, `tools`, `temperature`, ...
+  plus `speech_config`, `system_instruction`, `tools`, `thinking_config`, `temperature`, ...
 - `functions::Dict{String, <:Function}`: executed automatically when the model issues
   a mid-session tool call.
+- `input_audio_transcription::Bool=false`: Transcribe the audio you send; transcripts arrive
+  as `:input_transcription` on events.
+- `output_audio_transcription::Bool=false`: Transcribe the model's audio; transcripts arrive
+  as `:output_transcription` on events.
+- `session_resumption=nothing`: `true` to make the session resumable, or a handle (from
+  `session.resumption_handle` of an earlier session) to resume that session.
+- `context_window_compression=nothing`: `true` for sliding-window compression with default
+  settings, or a dict such as
+  `Dict(:triggerTokens => 25_000, :slidingWindow => Dict(:targetTokens => 12_000))`.
+- `realtime_input_config=nothing`: Voice activity detection and turn settings, e.g.
+  `Dict(:automaticActivityDetection => Dict(:disabled => true))` to signal activity yourself
+  with `send_realtime_input(session; activity_start=true)`.
 
 Use [`send_realtime_input`](@ref), [`send_client_content`](@ref),
 [`recv_event`](@ref), [`receive_text`](@ref), and [`close_live!`](@ref).
@@ -105,21 +134,13 @@ function connect_live(
     model::String;
     config::GenerateContentConfig=GenerateContentConfig(),
     functions::Dict{String,<:Function}=Dict{String,Function}(),
+    setup_options...,
 )
     url = _live_websocket_url(provider)
-    session = LiveSession(
-        provider,
-        model,
-        config,
-        Dict{String,Function}(functions),
-        Channel{String}(Inf),
-        Channel{Dict{Symbol,Any}}(64),
-        Base.RefValue{Any}(nothing),
-        false,
-        false,
+    session = LiveSession(provider, model, config, functions)
+    setup_msg = Dict{String,Any}(
+        "setup" => _build_live_setup(model, config; setup_options...)
     )
-
-    setup_msg = Dict{String,Any}("setup" => _build_live_setup(model, config))
     setup_done = Base.Event()
 
     session.ws_ref[] = @async begin
@@ -236,8 +257,21 @@ function _parse_live_event(session::LiveSession, frame::String)
         sc = event[:serverContent]
         audio = _extract_live_audio(sc)
         audio !== nothing && (event[:audio] = audio)
-        interrupted = get(sc, :interrupted, false)
-        interrupted && (event[:interrupted] = true)
+        get(sc, :interrupted, false) && (event[:interrupted] = true)
+        for (field, key) in (
+            :inputTranscription => :input_transcription,
+            :outputTranscription => :output_transcription,
+        )
+            transcription = get(sc, field, nothing)
+            transcription === nothing ||
+                (event[key] = String(get(transcription, :text, "")))
+        end
+    end
+
+    update = get(event, :sessionResumptionUpdate, nothing)
+    if update !== nothing && get(update, :resumable, false)
+        handle = get(update, :newHandle, "")
+        isempty(handle) || (session.resumption_handle = String(handle))
     end
 
     return event
@@ -264,6 +298,11 @@ function _extract_live_audio(server_content)
     return nothing
 end
 
+function _media_chunk(media, mime_type)
+    bytes = media isa AbstractVector{UInt8} ? media : read(String(media))
+    return Dict{String,Any}("mimeType" => mime_type, "data" => base64encode(bytes))
+end
+
 """
     send_realtime_input(session; audio=nothing, audio_mime_type="audio/pcm;rate=16000",
                         video=nothing, video_mime_type="image/jpeg", text=nothing,
@@ -285,33 +324,12 @@ function send_realtime_input(
     audio_stream_end::Bool=false,
 )
     payload = Dict{String,Any}()
-
-    if audio !== nothing
-        data = if audio isa AbstractVector{UInt8}
-            Base64.base64encode(audio)
-        else
-            Base64.base64encode(read(String(audio)))
-        end
-        payload["mediaChunks"] = [
-            Dict{String,Any}("mimeType" => audio_mime_type, "data" => data)
-        ]
-    elseif audio_stream_end
-        payload["audioStreamEnd"] = true
-    end
-
-    if video !== nothing
-        data = if video isa AbstractVector{UInt8}
-            Base64.base64encode(video)
-        else
-            Base64.base64encode(read(String(video)))
-        end
-        chunk = Dict{String,Any}("mimeType" => video_mime_type, "data" => data)
-        if haskey(payload, "mediaChunks")
-            push!(payload["mediaChunks"], chunk)
-        else
-            payload["mediaChunks"] = [chunk]
-        end
-    end
+    chunks = [
+        _media_chunk(x, mime) for
+        (x, mime) in ((audio, audio_mime_type), (video, video_mime_type)) if x !== nothing
+    ]
+    isempty(chunks) || (payload["mediaChunks"] = chunks)
+    audio === nothing && audio_stream_end && (payload["audioStreamEnd"] = true)
 
     if text !== nothing
         payload["text"] = text

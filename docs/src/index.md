@@ -47,6 +47,23 @@ provider = GoogleProvider(; api_key="your-api-key-here")
 response = generate_content(provider, model, prompt)
 ```
 
+### Retries, Timeouts and Errors
+
+Failed requests throw a `GeminiAPIError` with the HTTP `code`, the API's `status` (e.g. `"RESOURCE_EXHAUSTED"`) and `message`. Requests are not retried unless the provider has `retry_options`; `http_options` sets default `HTTP.request` options such as timeouts for every call.
+
+```julia
+provider = GoogleProvider(;
+    retry_options=RetryOptions(),  # up to 5 attempts on 408, 429, 500, 502, 503, 504
+    http_options=(readtimeout=120,),
+)
+
+try
+    generate_content(provider, model, prompt)
+catch e
+    e isa GeminiAPIError && e.code == 429 && @warn "Rate limited" e.message e.retry_delay
+end
+```
+
 ### Generate Content
 
 ```julia
@@ -80,6 +97,17 @@ image_path = "test/input/example.jpg"
 images = [(path=image_path,), (path=image_path, mime_type="image/png")]
 response = generate_content(model, prompt; images)
 println(response.text)
+```
+
+Or mix text, media (`path`, `data` or `uri`, with `mime_type`) and uploaded files in one turn:
+```julia
+contents = ["Compare these:", (path="test/input/example.jpg",), (data=pdf_bytes, mime_type="application/pdf")]
+response = generate_content(model, contents)
+```
+
+The system instruction can be a string, a vector of strings and parts, or a content dict:
+```julia
+config = GenerateContentConfig(; system_instruction=["You are a pirate.", "Answer in rhyme."])
 ```
 
 
@@ -166,6 +194,13 @@ if !isempty(response.images)
 end
 ```
 
+Set the aspect ratio and size with `image_config`:
+```julia
+config = GenerateContentConfig(;
+    response_modalities=["Image"], image_config=Dict(:aspectRatio => "16:9", :imageSize => "2K")
+)
+```
+
 Edit image with Gemini:
 ```julia
 image_path = "gemini-native-image.png"
@@ -199,23 +234,29 @@ outputs
 4
 ```
 
+Pass a `config` to include the system instruction and tools in the count:
+```julia
+config = GenerateContentConfig(; system_instruction="You are a pirate.", tools=[google_search_tool()])
+n_tokens = count_tokens(model, "The Julia programming language"; config)
+```
+
 ### Create Embeddings
 
 ```julia
 using GoogleGenAI
 
-embeddings = embed_content("text-embedding-004", "Hello")
+embeddings = embed_content("gemini-embedding-001", "Hello")
 println(size(embeddings.values))
 ```
 outputs
 ```julia
-(768,)
+(3072,)
 ```
 
 ```julia
 using GoogleGenAI
 
-embeddings = embed_content("text-embedding-004", ["Hello", "world"])
+embeddings = embed_content("gemini-embedding-001", ["Hello", "world"])
 println(embeddings.response_status)
 println(size(embeddings.values[1]))
 println(size(embeddings.values[2]))
@@ -223,14 +264,60 @@ println(size(embeddings.values[2]))
 outputs
 ```julia
 200
-(768,)
-(768,)
+(3072,)
+(3072,)
+```
+
+Set what the embedding is for and truncate its size:
+```julia
+query = embed_content("gemini-embedding-001", "What is Julia?"; task_type="RETRIEVAL_QUERY", output_dimensionality=256)
+docs = embed_content(
+    "gemini-embedding-001", ["Julia is a programming language."];
+    task_type="RETRIEVAL_DOCUMENT", title="Julia", output_dimensionality=256,
+)
+```
+
+### Decisions
+
+Ask calibrated yes/no, single-choice, and rubric questions about text, images, audio, video, or PDFs.
+
+```julia
+using GoogleGenAI
+
+r = create_decision(
+    "gemini-decision-1",
+    "Third late order and support hung up on me. Cancel my subscription.",
+    (
+        wants_cancel = NoulQuestion("Does the customer want to cancel?"),
+        topic = ChoiceQuestion("Primary topic", ["shipping", "billing", "praise"]),
+        sentiment = ScoreQuestion("Customer sentiment", ["negative", "neutral", "positive"]),
+    ),
+)
+
+r.answers["wants_cancel"].noul        # P(true)
+r.answers["topic"].choice             # most likely option
+r.answers["topic"].probabilities      # option => probability
+r.answers["sentiment"].probabilities  # aligned with r.answers["sentiment"].legend
+```
+
+Inputs can mix text and media given as a `path`, raw `data`, a `uri`, or a file from `upload_file`:
+
+```julia
+r = create_decision(
+    "gemini-decision-1",
+    ["Product photo and customer call:", (path="mug.jpg", resolution="high"), upload_file("call.mp3")],
+    (damaged = NoulQuestion("Is the product damaged?"),),
+)
 ```
 
 ### List Models
 
+`list_models` fetches every page; `get_model` returns one model's details.
+
 ```julia
 using GoogleGenAI
+
+get_model("gemini-3.7-flash")[:prompt_token_limit]
 
 models = list_models()
 for m in models
@@ -290,17 +377,17 @@ response = generate_content(model, prompt; config)
 
 ### Thinking 
 
-The Gemini 2.5 and 3 series models use an internal "thinking process" during response generation. This process contributes to their improved reasoning capabilities and helps them use multi-step planning to solve complex tasks. This thinking can be limited by setting the `thinking_budget`. 
+The Gemini 2.5 and 3 series models use an internal "thinking process" during response generation. This process contributes to their improved reasoning capabilities and helps them use multi-step planning to solve complex tasks. Gemini 3 models take a `thinking_level` (`"minimal"`, `"low"`, `"medium"`, `"high"` or `"xhigh"`); a `thinking_budget` in tokens is also accepted and is what Gemini 2.5 models use. Set one or the other; unset fields use the model's default.
 
 ```julia
 using GoogleGenAI
 
-thinking_config = ThinkingConfig(; thinking_budget=100, include_thoughts=true)
-config = GenerateContentConfig(;
-    thinking_config
-)
-model = "gemini-3.7-flash"
-response = generate_content(model, "Hello"; config)
+thinking_config = ThinkingConfig(; thinking_level="low", include_thoughts=true)
+config = GenerateContentConfig(; thinking_config)
+response = generate_content("gemini-3.7-flash", "Hello"; config)
+
+config = GenerateContentConfig(; thinking_config=ThinkingConfig(; thinking_budget=100))
+response = generate_content("gemini-3.7-flash", "Hello"; config)
 ```
 
 
@@ -348,6 +435,7 @@ gemma-3n-e2b-it
 Cache content to reuse it across multiple requests:
 
 ```julia
+using Dates
 using GoogleGenAI
 
 # API key is automatically loaded from environment variable
@@ -381,8 +469,21 @@ list_result = list_cached_content(provider)
 get_result = get_cached_content(provider, cache_result.name)
 # update the TTL of a specific cache
 update_result = update_cached_content(provider, cache_result.name, "90s") 
+# or set an absolute expiry time (UTC)
+update_result = update_cached_content(provider, cache_result.name; expire_time=now(UTC) + Hour(1))
 # delete a specific cache
 delete_cached_content(provider, cache_result.name)
+```
+
+Caches can also hold a system instruction and tools, and take a display name:
+```julia
+cache_result = create_cached_content(
+    provider, model, text;
+    expire_time=now(UTC) + Minute(30),
+    display_name="report",
+    system_instruction="Answer questions about the report.",
+    tools=[url_context_tool()],
+)
 ```
 
 ### Files
@@ -412,16 +513,201 @@ println(response.text)
 # Get file metadata
 get_result = get_file(upload_result[:name])
 
-# List files
+# List all files (every page)
 list_result = list_files()
 
 # Delete file
 delete_file(upload_result[:name])
 ```
 
+Files the API generated, such as batch output, can be downloaded with `download_file(name)` (returns the bytes) or `download_file(name; path="out.jsonl")`.
+
+## Chat Sessions
+
+Persistent multi-turn conversations.
+
+```julia
+using GoogleGenAI
+
+chat = create_chat("gemini-3.7-flash")
+response = send_message(chat, "My name is Luciana.")
+println(response.text)
+
+# History is sent automatically on each turn
+response = send_message(chat, "What's my name?")
+
+get_history(chat)                 # every turn, including function calls and empty replies
+get_history(chat; curated=true)   # what is sent to the model: empty replies and their prompts removed
+clear_history!(chat)              # start over
+```
+
+Automatic function calling: declare the functions in the config and pass their Julia
+implementations when creating the chat; any function calls requested by the model are
+executed and fed back until a final answer.
+
+```julia
+weather = FunctionDeclaration(
+    "get_weather",
+    "Get the current weather for a location",
+    Dict{String,Any}("type" => "object", "properties" => Dict("location" => Dict("type" => "string"))),
+)
+functions = Dict{String,Function}(
+    "get_weather" => (; location::String) -> Dict("temperature" => 25),
+)
+config = GenerateContentConfig(; function_declarations=[weather])
+chat = create_chat("gemini-3.7-flash"; config, functions)
+response = send_message(chat, "What's the weather in Tokyo?")
+```
+
+Streaming works the same way:
+
+```julia
+for chunk in send_message_stream(chat, "Tell me a story")
+    print(chunk.text)
+end
+```
+
+## Live / Realtime Sessions
+
+Bidirectional streaming over WebSocket (`client.aio.live.connect()` equivalent).
+
+```julia
+using GoogleGenAI
+
+# Text-in / text-out turn-based session
+session = connect_live(
+    "gemini-3.5-flash";
+    config=GenerateContentConfig(response_modalities=["TEXT"]),
+)
+send_client_content(session; turns="Hello!", turn_complete=true)
+text = receive_text(session)   # collects model turn text until turnComplete
+close_live!(session)
+```
+
+Realtime audio/video input and audio output:
+
+```julia
+session = connect_live(
+    "gemini-2.5-flash-native-audio-preview-09-2025";
+    config=GenerateContentConfig(
+        response_modalities=["AUDIO"],
+        speech_config=Dict(:voiceConfig => Dict(:prebuiltVoiceConfig => Dict(:voiceName => "Kore"))),
+    ),
+)
+
+# Stream raw 16-bit PCM mono @16kHz (or pass a file path)
+send_realtime_input(session; audio=read("input.pcm"), audio_mime_type="audio/pcm;rate=16000")
+# Stream camera frames (JPEG bytes or path):
+send_realtime_input(session; video=read("frame.jpg"))
+# End of an audio stream:
+send_realtime_input(session; audio_stream_end=true)
+
+for event in session.events          # or: event = recv_event(session)
+    haskey(event, :audio) && play(event[:audio][2])   # (mime_type, PCM bytes)
+    haskey(event, :interrupted) && break
+end
+close_live!(session)
+```
+
+Transcripts, resumable sessions, context compression and voice activity detection are set when connecting:
+
+```julia
+session = connect_live(
+    "gemini-2.5-flash-native-audio-preview-09-2025";
+    config=GenerateContentConfig(response_modalities=["AUDIO"]),
+    input_audio_transcription=true,    # events carry :input_transcription
+    output_audio_transcription=true,   # events carry :output_transcription
+    session_resumption=true,           # session.resumption_handle tracks the latest handle
+    context_window_compression=true,   # sliding window; or a Dict with triggerTokens/slidingWindow
+    realtime_input_config=Dict(:automaticActivityDetection => Dict(:disabled => true)),
+)
+
+# Later, resume where the previous session left off:
+session = connect_live(model; session_resumption=old_session.resumption_handle)
+```
+
+Mid-session tool use: register Julia functions at connect time and any `toolCall`
+issued mid-conversation is executed automatically with the result sent back.
+Manual replies are also supported via `send_tool_response`.
+
+```julia
+functions = Dict{String,Function}(
+    "get_weather" => (; city::String) -> Dict("temp_c" => 25),
+)
+weather = FunctionDeclaration(
+    "get_weather",
+    "Get the current weather for a city",
+    Dict{String,Any}("type" => "object", "properties" => Dict("city" => Dict("type" => "string"))),
+)
+session = connect_live(provider, "gemini-live-model";
+    config=GenerateContentConfig(; function_declarations=[weather]), functions)
+```
+
+## Batch Predictions
+
+Submit large volumes of requests asynchronously. Pass inline requests (total size < 20MB) or a JSONL file uploaded via the File API (up to 2GB).
+
+```julia
+using GoogleGenAI
+
+# 1. Create an inline batch job
+job = create_batch_job("gemini-3.5-flash"; display_name="my-batch", requests=[
+    BatchRequest("Tell me a one-sentence joke."; key="request-1"),
+    BatchRequest("Why is the sky blue?"; key="request-2"),
+])
+job_name = String(job[:name])  # e.g. "batches/123456"
+
+# 2. Poll until the job reaches a terminal state
+job = poll_batch_job(job_name; interval_s=30, verbose=true)
+
+# 3. Extract results: Vector{Pair{key, text}} (errors reported as "ERROR: ...")
+results = extract_batch_text(job)
+for (key, text) in results
+    println("-- $key --\n$text")
+end
+```
+
+Each `BatchRequest` takes any `contents` and a `config`; its system instruction, tools, tool config, safety settings and generation settings are all sent:
+
+```julia
+config = GenerateContentConfig(; system_instruction="Answer in one word.", tools=[google_search_tool()])
+job = create_batch_job("gemini-3.5-flash"; requests=[BatchRequest("Capital of France?"; config)])
+```
+
+For larger workloads, upload a JSONL input file first and pass its name:
+
+```julia
+# my-batch.jsonl contains one line per request:
+# {"key": "request-1", "request": {"contents": [{"parts": [{"text": "..."}]}]}}
+file = upload_file("my-batch.jsonl"; mime_type="application/jsonl")
+job = create_batch_job("gemini-3.5-flash"; input_file=String(file[:name]))
+
+# After polling succeeds, download and parse the JSONL output file:
+finished_job = poll_batch_job(String(job[:name]))
+out_file = String(finished_job[:response][:responsesFile])
+lines = download_batch_output_file(out_file)
+texts = reduce(vcat, extract_batch_text.(lines))
+```
+
+Batch embeddings work the same way:
+
+```julia
+job = create_embeddings_batch_job("gemini-embedding-001"; contents=["hello", "world"], task_type="CLUSTERING")
+```
+
+Other job management functions:
+```julia
+list_batch_jobs()            # every batch job in the project
+get_batch_job(job_name)      # current status/metadata
+String(get_batch_job(job_name)[:metadata][:state])
+cancel_batch_job(job_name)   # stops processing new requests
+delete_batch_job(job_name)   # removes the job entirely
+```
+
 ## Structured Generation
 
-Json 
+Use `response_schema` with the API's schema format, or `response_json_schema` with a standard JSON Schema.
+
 ```julia
 using GoogleGenAI
 using JSON3
@@ -503,13 +789,21 @@ JSON3.Object[{
 }]
 ```
 
+# Built-in Tools
+
+Helpers build the tools the API runs itself: `google_search_tool()`, `url_context_tool()`, `code_execution_tool()`, `google_maps_tool()`, `file_search_tool(store_names)` and `computer_use_tool()`. Raw tool dicts work too.
+
+```julia
+config = GenerateContentConfig(; tools=[google_search_tool(), url_context_tool()])
+response = generate_content(model, "Summarize https://julialang.org/blog/ in two sentences."; config)
+```
+
 # Code Generation
 
 ```julia
 using GoogleGenAI
 
-tools = [Dict(:code_execution => Dict())]
-config = GenerateContentConfig(; tools)
+config = GenerateContentConfig(; tools=[code_execution_tool()])
 
 model = "gemini-3.7-flash"
 prompt = "Write a function to calculate the factorial of a number."

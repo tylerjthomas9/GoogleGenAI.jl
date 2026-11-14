@@ -8,8 +8,7 @@ using Test
     @test haskey(payload, "request")
     @test haskey(payload, "metadata")
     @test payload["metadata"]["key"] == "request-1"
-    @test payload["request"]["contents"][1]["parts"][1]["text"] == "Why is the sky blue?"
-    @test haskey(payload["request"], "generationConfig")
+    @test payload["request"]["contents"][1][:parts][1][:text] == "Why is the sky blue?"
 end
 
 @testset "BatchRequest with config" begin
@@ -17,12 +16,33 @@ end
     req = BatchRequest("Write a poem."; key="poem", config=config)
     payload = GoogleGenAI._batch_request_payload(req)
     @test payload["request"]["generationConfig"]["temperature"] == 0.5
-    @test payload["request"]["systemInstruction"]["parts"][1]["text"] == "You are a cat."
+    @test payload["request"]["systemInstruction"][:parts][1][:text] == "You are a cat."
+end
+
+@testset "BatchRequest sends tools and safety settings" begin
+    lookup(; city) = city
+    config = GenerateContentConfig(;
+        tools=Any[google_search_tool(), lookup],
+        tool_config=ToolConfig(;
+            function_calling_config=FunctionCallingConfig(; mode="ANY")
+        ),
+        safety_settings=[SafetySetting("HARM_CATEGORY_HARASSMENT", "BLOCK_NONE")],
+    )
+    conversation = [Dict(:role => "user", :parts => [Dict(:text => "hi")])]
+    request = GoogleGenAI._batch_request_payload(BatchRequest(conversation; config), 3)
+    @test request["metadata"]["key"] == "request-3"
+    body = request["request"]
+    @test body["contents"] === conversation
+    @test haskey(body["tools"][1], "googleSearch")
+    @test body["tools"][2]["functionDeclarations"][1]["name"] == "lookup"
+    @test body["toolConfig"]["functionCallingConfig"]["mode"] == "ANY"
+    @test only(body["safetySettings"]).threshold == "BLOCK_NONE"
 end
 
 @testset "Inline requests default keys" begin
     requests = [BatchRequest("a"), BatchRequest("b"; key="custom")]
-    payloads = GoogleGenAI._build_inline_requests(requests)
+    body = GoogleGenAI._build_batch_request_body(; requests)
+    payloads = body["batch"]["input_config"]["requests"]["requests"]
     @test length(payloads) == 2
     @test payloads[1]["metadata"]["key"] == "request-1"
     @test payloads[2]["metadata"]["key"] == "custom"
@@ -47,8 +67,49 @@ end
 
 @testset "Batch request body (file input)" begin
     body = GoogleGenAI._build_batch_request_body(; input_file="files/123456")
-    file_name = body["batch"]["input_config"]["requests"]["file_name"]
-    @test file_name == "files/123456"
+    @test body["batch"]["input_config"] == Dict("file_name" => "files/123456")
+    @test !haskey(body["batch"], "display_name")
+end
+
+@testset "Batch endpoints" begin
+    requests = []
+    handler = function (req)
+        push!(
+            requests,
+            (target=req.target, body=isempty(req.body) ? nothing : JSON3.read(req.body)),
+        )
+        return json_response(
+            Dict("name" => "batches/1", "operations" => [Dict("name" => "batches/1")])
+        )
+    end
+    with_server(handler) do provider
+        create_batch_job(
+            provider, "gemini-x"; requests=[BatchRequest("hi")], display_name="gen"
+        )
+        create_embeddings_batch_job(
+            provider,
+            "embed-x";
+            contents=["a", "b"],
+            task_type="CLUSTERING",
+            display_name="emb",
+        )
+        create_embeddings_batch_job(provider, "embed-x"; input_file="files/in")
+        @test [j.name for j in list_batch_jobs(provider; page_size=10)] == ["batches/1"]
+        @test_throws ArgumentError create_embeddings_batch_job(provider, "embed-x")
+    end
+    gen, emb, emb_file, listed = requests
+    @test gen.target == "/v1beta/models/gemini-x:batchGenerateContent"
+    @test gen.body.batch.display_name == "gen"
+    @test emb.target == "/v1beta/models/embed-x:asyncBatchEmbedContent"
+    inline = emb.body.batch.input_config.requests.requests
+    @test [r.request.content.parts[1].text for r in inline] == ["a", "b"]
+    @test all(
+        r -> r.request.taskType == "CLUSTERING" && r.request.model == "models/embed-x",
+        inline,
+    )
+    @test [r.metadata.key for r in inline] == ["request-1", "request-2"]
+    @test emb_file.body.batch.input_config.file_name == "files/in"
+    @test listed.target == "/v1beta/batches?pageSize=10"
 end
 
 @testset "Completed states helper" begin
@@ -65,20 +126,22 @@ end
         "done": true,
         "metadata": {"state": "JOB_STATE_SUCCEEDED"},
         "response": {
-            "inlinedResponses": [
-                {
-                    "metadata": {"key": "request-1"},
-                    "response": {
-                        "candidates": [
-                            {"content": {"parts": [{"text": "Hello"}, {"text": " world"}]}}
-                        ]
+            "inlinedResponses": {
+                "inlinedResponses": [
+                    {
+                        "metadata": {"key": "request-1"},
+                        "response": {
+                            "candidates": [{"content": {"parts": [
+                                {"text": "Hello"}, {"text": " world"}
+                            ]}}]
+                        }
+                    },
+                    {
+                        "metadata": {"key": "request-2"},
+                        "error": {"code": 400, "message": "bad request"}
                     }
-                },
-                {
-                    "metadata": {"key": "request-2"},
-                    "error": {"code": 400, "message": "bad request"}
-                }
-            ]
+                ]
+            }
         }
     }
     """)

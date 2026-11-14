@@ -6,20 +6,13 @@ Create a function declaration with a Dict-based parameters format.
 function FunctionDeclaration(
     name::String, description::Union{String,Nothing}, parameters::Dict{String,Any}
 )
-    param_type = get(parameters, "type", "object")
-    param_desc = get(parameters, "description", nothing)
-    param_props = get(parameters, "properties", nothing)
-    param_items = get(parameters, "items", nothing)
-    param_required = get(parameters, "required", nothing)
-
     param = FunctionParameter(;
-        type=param_type,
-        description=param_desc,
-        properties=param_props,
-        items=param_items,
-        required=param_required,
+        type=get(parameters, "type", "object"),
+        description=get(parameters, "description", nothing),
+        properties=get(parameters, "properties", nothing),
+        items=get(parameters, "items", nothing),
+        required=get(parameters, "required", nothing),
     )
-
     return FunctionDeclaration(name, description, param)
 end
 
@@ -32,39 +25,42 @@ a `FunctionDeclaration` or a `Dict` instead.
 """
 function _function_to_declaration(tool::Function)
     return FunctionDeclaration(;
-        name=string(nameof(tool)),
-        description=nothing,
-        parameters=FunctionParameter(; type="object"),
+        name=string(nameof(tool)), parameters=FunctionParameter(; type="object")
     )
 end
 
-function _build_tools(config::GenerateContentConfig)
-    tools = Dict{String,Any}[]
+_declaration(tool::Function) = to_api_function_declaration(_function_to_declaration(tool))
+_declaration(decl::FunctionDeclaration) = to_api_function_declaration(decl)
+
+function _build_tools(tools, function_declarations=nothing)
+    built = Dict{String,Any}[]
     declarations = Dict{String,Any}[]
-    for tool in something(config.tools, ())
-        if tool isa Function
-            push!(declarations, to_api_function_declaration(_function_to_declaration(tool)))
+    for tool in something(tools, ())
+        if tool isa Union{Function,FunctionDeclaration}
+            push!(declarations, _declaration(tool))
         elseif tool isa AbstractDict
-            push!(tools, string_key_dict(tool))
+            push!(built, string_key_dict(tool))
         else
-            @warn "Ignoring unsupported tool type: $(typeof(tool))"
+            throw(ArgumentError("unsupported tool type: $(typeof(tool))"))
         end
     end
-    for fd in something(config.function_declarations, ())
-        push!(declarations, to_api_function_declaration(fd))
-    end
+    append!(declarations, _declaration.(something(function_declarations, ())))
     isempty(declarations) ||
-        push!(tools, Dict{String,Any}("functionDeclarations" => declarations))
-    return tools
+        push!(built, Dict{String,Any}("functionDeclarations" => declarations))
+    return built
 end
 
-function _build_tool_config(config::GenerateContentConfig)
-    config.tool_config === nothing && return nothing
-    fc = config.tool_config.function_calling_config
+function _build_tools(config::GenerateContentConfig)
+    return _build_tools(config.tools, config.function_declarations)
+end
+
+function _build_tool_config(tool_config::Union{Nothing,ToolConfig})
+    tool_config === nothing && return nothing
+    fc = tool_config.function_calling_config
     fc === nothing && return nothing
-    fc_dict = Dict{String,Any}("mode" => fc.mode)
-    fc.allowed_function_names !== nothing &&
-        (fc_dict["allowedFunctionNames"] = fc.allowed_function_names)
+    fc_dict = _compact(
+        "mode" => fc.mode, "allowedFunctionNames" => fc.allowed_function_names
+    )
     return Dict{String,Any}("functionCallingConfig" => fc_dict)
 end
 
@@ -93,39 +89,25 @@ function _call_function(
     return Dict{String,Any}("value" => result)
 end
 
-"""
-    build_function_conversation(user_query, function_name, function_args, function_result)
-
-Builds a properly formatted conversation for function calling.
-Returns a conversation vector ready for the final response.
-"""
-function build_function_conversation(
-    user_query::String, function_name::String, function_args::Dict, function_result::Dict
-)
-    return [
-        Dict(:role => "user", :parts => [Dict(:text => user_query)]),
-        Dict(
-            :role => "model",
-            :parts => [
-                Dict(:functionCall =>
-                        Dict(:name => function_name, :args => function_args)),
-            ],
-        ),
-        Dict(
-            :role => "function",
-            :parts => [
-                Dict(
-                    :functionResponse =>
-                        Dict(:name => function_name, :response => function_result),
-                ),
-            ],
-        ),
-    ]
+function _function_calls(parts)
+    calls = FunctionCall[]
+    for part in parts
+        fc = get(part, :functionCall, nothing)
+        fc === nothing && continue
+        args = get(fc, :args, Dict{String,Any}())
+        args = if args isa AbstractString
+            JSON3.read(args, Dict{String,Any})
+        else
+            Dict{String,Any}(String(k) => v for (k, v) in pairs(args))
+        end
+        push!(calls, FunctionCall(String(get(fc, :name, "")), args))
+    end
+    return calls
 end
 
 """
     execute_parallel_function_calls(
-        function_calls::Vector, 
+        function_calls::Vector,
         functions::Dict{String, <:Function}
     ) -> Dict{String, Any}
 
@@ -144,4 +126,36 @@ function execute_parallel_function_calls(
     return Dict{String,Any}(
         fc.name => _call_function(functions, fc.name, fc.args) for fc in function_calls
     )
+end
+
+"""
+    add_function_result_to_conversation(conversation, function_name::String, function_result)
+
+Append a function result to a conversation for multi-turn function calling and return the
+conversation.
+"""
+function add_function_result_to_conversation(
+    conversation::Vector{<:Dict}, function_name::String, function_result::Any
+)
+    result_str = if function_result isa String
+        function_result
+    elseif function_result isa Union{Dict,Vector}
+        JSON3.write(function_result)
+    else
+        string(function_result)
+    end
+
+    function_response = Dict(
+        :role => "function",
+        :parts => [
+            Dict(
+                :functionResponse => Dict(
+                    :name => function_name,
+                    :response => Dict(:content => result_str),
+                ),
+            ),
+        ],
+    )
+    push!(conversation, function_response)
+    return conversation
 end

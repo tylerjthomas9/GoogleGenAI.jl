@@ -153,24 +153,8 @@ end
     @test sym_dict[:name] == "value"
     @test sym_dict[:number] == 42
 
-    # Test function conversation building
-    user_query = "What's the weather?"
     function_name = "get_weather"
-    function_args = Dict("location" => "Paris")
     function_result = Dict("temperature" => 25, "condition" => "sunny")
-
-    convo = GoogleGenAI.build_function_conversation(
-        user_query, function_name, function_args, function_result
-    )
-
-    @test length(convo) == 3
-    @test convo[1][:role] == "user"
-    @test convo[2][:role] == "model"
-    @test convo[3][:role] == "function"
-    @test haskey(convo[2][:parts][1], :functionCall)
-    @test haskey(convo[3][:parts][1], :functionResponse)
-
-    # Test adding function result to conversation
     base_convo = [Dict(:role => "user", :parts => [Dict(:text => "Hello")])]
     updated_convo = add_function_result_to_conversation(
         base_convo, function_name, function_result

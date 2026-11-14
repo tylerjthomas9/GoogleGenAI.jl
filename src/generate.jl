@@ -1,320 +1,121 @@
-function _format_system_instruction(instruction::String)
-    return Dict("parts" => [Dict("text" => instruction)])
-end
-
-function _build_request_body(
-    conversation::Vector{Dict{Symbol,Any}}, config::GenerateContentConfig
-)
-    body = Dict{String,Any}()
-    if config.system_instruction !== nothing
-        body["systemInstruction"] = _format_system_instruction(config.system_instruction)
-    end
-    body["contents"] = conversation
-    body["generationConfig"] = _build_generation_config(config)
-    body["tools"] = _build_tools(config)
-
-    config.safety_settings !== nothing && (body["safetySettings"] = config.safety_settings)
-    config.cached_content !== nothing && (body["cachedContent"] = config.cached_content)
-    config.labels !== nothing && (body["labels"] = config.labels)
-
-    tool_config = _build_tool_config(config)
-    tool_config !== nothing && (body["toolConfig"] = tool_config)
-
+function _build_request_body(contents, config::GenerateContentConfig)
+    body = _compact(
+        "contents" => contents,
+        "systemInstruction" => _system_instruction(config.system_instruction),
+        "safetySettings" => config.safety_settings,
+        "toolConfig" => _build_tool_config(config.tool_config),
+        "cachedContent" => config.cached_content,
+        "labels" => config.labels,
+        "serviceTier" => config.service_tier,
+    )
+    generation_config = _build_generation_config(config)
+    isempty(generation_config) || (body["generationConfig"] = generation_config)
+    tools = _build_tools(config)
+    isempty(tools) || (body["tools"] = tools)
     return body
 end
 
-"""
-    _parse_response(response) -> NamedTuple
-
-Parse the API response into a structured format.
-
-# Arguments
-- `response`: The HTTP response object from the API.
-
-# Returns
-- NamedTuple with fields including candidates, safety_ratings, text, images, function_calls, etc.
-"""
-function _parse_response(response)
-    body = JSON3.read(response.body)
-
-    text_parts = String[]
-    image_parts = []
-    function_calls = []
-    candidates = get(body, :candidates, [])
-
-    finish_reason = nothing
-    if !isempty(candidates)
-        finish_reason = get(candidates[1], :finishReason, nothing)
-
-        content = get(candidates[1], :content, nothing)
-        if content !== nothing && haskey(content, :parts)
-            for part in content.parts
-                if haskey(part, :text) && part.text !== nothing
-                    _is_answer_text(part) && push!(text_parts, part.text)
-                elseif haskey(part, :inlineData) && part.inlineData !== nothing
-                    inline_data = part.inlineData
-                    mime_type = get(inline_data, :mimeType, "image/png")
-                    data = get(inline_data, :data, "")
-
-                    data = strip(data)
-                    if isempty(data)
-                        continue
-                    end
-                    image_data = Base64.base64decode(data)
-                    push!(image_parts, (data=image_data, mime_type=mime_type))
-                elseif haskey(part, :functionCall) && part.functionCall !== nothing
-                    fc = part.functionCall
-                    name = get(fc, :name, "")
-                    args_str = get(fc, :args, "{}")
-
-                    args = if typeof(args_str) <: AbstractDict
-                        Dict{String,Any}(String(k) => v for (k, v) in pairs(args_str))
-                    else
-                        JSON3.read(args_str, Dict{String,Any})
-                    end
-
-                    push!(function_calls, FunctionCall(name, args))
-                end
-            end
-        end
-    else
-        text = get(body, :text, "")
-        !isempty(text) && push!(text_parts, text)
+function _inline_images(parts)
+    images = NamedTuple{(:data, :mime_type),Tuple{Vector{UInt8},String}}[]
+    for part in parts
+        inline = get(part, :inlineData, nothing)
+        inline === nothing && continue
+        data = strip(get(inline, :data, ""))
+        isempty(data) && continue
+        push!(
+            images,
+            (
+                data=base64decode(data),
+                mime_type=String(get(inline, :mimeType, "image/png")),
+            ),
+        )
     end
+    return images
+end
 
-    full_text = join(text_parts, "")
-
-    # Safety ratings are reported per-candidate; fall back to the top-level
-    # field (prompt feedback) if no candidate provides them.
-    safety_ratings = if !isempty(candidates) && haskey(candidates[1], :safetyRatings)
-        candidates[1].safetyRatings
+function _parse_body(body)
+    candidates = get(body, :candidates, [])
+    candidate = isempty(candidates) ? nothing : first(candidates)
+    content = candidate === nothing ? nothing : get(candidate, :content, nothing)
+    parts = content === nothing ? () : get(content, :parts, ())
+    calls = _function_calls(parts)
+    # Safety ratings are per candidate; fall back to the top-level field.
+    safety_ratings = if candidate !== nothing && haskey(candidate, :safetyRatings)
+        candidate.safetyRatings
     else
         get(body, :safetyRatings, Dict{Symbol,Any}())
     end
-
     return (
         candidates=candidates,
         safety_ratings=safety_ratings,
-        text=full_text,
-        images=image_parts,
-        function_calls=isempty(function_calls) ? nothing : function_calls,
-        response_status=response.status,
-        finish_reason=finish_reason,
+        text=join(String(p.text) for p in parts if _is_answer_text(p)),
+        images=_inline_images(parts),
+        function_calls=isempty(calls) ? nothing : calls,
+        finish_reason=if candidate === nothing
+            nothing
+        else
+            get(candidate, :finishReason, nothing)
+        end,
         usage_metadata=get(body, :usageMetadata, Dict{Symbol,Any}()),
     )
 end
 
 """
-    add_function_result_to_conversation(conversation::Vector{Dict{Symbol, Any}}, function_name::String, function_result::Any)
+    _parse_response(response) -> NamedTuple
 
-Adds a function result to a conversation for multi-turn function calling.
-
-# Arguments
-- `conversation::Vector{Dict{Symbol, Any}}`: The existing conversation.
-- `function_name::String`: The name of the function that was called.
-- `function_result::Any`: The result returned by the function.
-
-# Returns
-- Updated conversation vector with the function result added.
+Parse a `generateContent` HTTP response into the named tuple `generate_content` returns.
 """
-function add_function_result_to_conversation(
-    conversation::Vector{<:Dict}, function_name::String, function_result::Any
-)
-    result_str = if isa(function_result, String)
-        function_result
-    elseif isa(function_result, Dict) || isa(function_result, Vector)
-        JSON3.write(function_result)
-    else
-        string(function_result)
-    end
-
-    function_response = Dict(
-        :role => "function",
-        :parts => [
-            Dict(
-                :functionResponse => Dict(
-                    :name => function_name,
-                    :response => Dict(:content => result_str),
-                ),
-            ),
-        ],
-    )
-
-    push!(conversation, function_response)
-    return conversation
-end
-
-function _convert_contents(contents::AbstractVector)
-    parts = Vector{Dict{String,Union{String,Dict{String,String}}}}()
-    for c in contents
-        if isa(c, String)
-            push!(parts, Dict("text" => c))
-        elseif isa(c, JSON3.Object) || isa(c, Dict)
-            cleaned_content = Dict{Symbol,String}(Symbol(k) => string(v) for (k, v) in c)
-            push!(
-                parts,
-                Dict(
-                    "file_data" => Dict(
-                        "file_uri" => cleaned_content[:uri],
-                        "mime_type" => cleaned_content[:mimeType],
-                    ),
-                ),
-            )
-        else
-            error("Unsupported content type in contents vector: $(typeof(content))")
-        end
-    end
-    return parts
-end
-
-function _infer_mime_from_ext(path::String)
-    ext = lowercase(splitext(path)[2])
-    if ext in [".jpg", ".jpeg"]
-        "image/jpeg"
-    elseif ext == ".png"
-        "image/png"
-    else
-        throw("Unkown image file format $path")
-    end
-end
-
-function _image_inline_parts(; image_path::String="", images::AbstractVector=NamedTuple[])
-    parts = Vector{Dict{String,Any}}()
-
-    if !isempty(image_path)
-        mime = _infer_mime_from_ext(image_path)
-        push!(
-            parts,
-            Dict(
-                "inline_data" =>
-                    Dict("mime_type" => mime, "data" => open(base64encode, image_path)),
-            ),
-        )
-    end
-
-    for img in images
-        if haskey(img, :path)
-            mime = haskey(img, :mime_type) ? img.mime_type : _infer_mime_from_ext(img.path)
-            push!(
-                parts,
-                Dict(
-                    "inline_data" =>
-                        Dict("mime_type" => mime, "data" => open(base64encode, img.path)),
-                ),
-            )
-        elseif haskey(img, :data)
-            mime = haskey(img, :mime_type) ? img.mime_type : "image/png"
-            push!(
-                parts, Dict("inline_data" => Dict("mime_type" => mime, "data" => img.data))
-            )
-        end
-    end
-
-    return parts
+function _parse_response(response)
+    return (; _parse_body(JSON3.read(response.body))..., response_status=response.status)
 end
 
 """
-    generate_content(provider::AbstractGoogleProvider, model_name::String, prompt::String; image_path::String, config=GenerateContentConfig()) -> NamedTuple
-    generate_content(api_key::String, model_name::String, prompt::String; image_path::String, config=GenerateContentConfig()) -> NamedTuple
-    
-    generate_content(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; config=GenerateContentConfig()) -> NamedTuple
-    generate_content(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; config=GenerateContentConfig()) -> NamedTuple
+    generate_content([provider | api_key], model_name, contents; image_path="", images=NamedTuple[], config=GenerateContentConfig()) -> NamedTuple
 
-Generate content based on a combination of text prompt and an image (optional).
+Generate a response from the model.
 
 # Arguments
-- `provider::AbstractGoogleProvider`: The provider instance for API requests.
-- `api_key::String`: Your Google API key as a string. 
-- `model_name::String`: The model to use for content generation.
-- `prompt::String`: The text prompt to accompany the image.
+- `provider::AbstractGoogleProvider` or `api_key::String`: Omit both to read the key from
+  `GOOGLE_API_KEY` or `GEMINI_API_KEY`.
+- `model_name::String`: The model to use, e.g. `"gemini-3.5-flash"`.
+- `contents`: A prompt string; a vector of parts for one user turn (strings, files returned by
+  [`upload_file`](@ref), media NamedTuples with `path`, `data` or `uri` plus `mime_type`, or
+  raw part dicts); or a conversation, i.e. a vector of content dicts with `role` and `parts`.
 
 # Keyword Arguments
-- `image_path::String` (optional, legacy): The path to the image file to include in the request.
-- `images::AbstractVector` (optional): The images to include in the request. Supports NamedTuples with `path` and `mime_type` keys.
-- `config::GenerateContentConfig` (optional): Configuration for the generation request.
+- `image_path::String`: Path of an image to attach to the last user turn.
+- `images::AbstractVector`: Media NamedTuples (`path`, or `data` with `mime_type`) to attach to the last user turn.
+- `config::GenerateContentConfig`: Configuration for the request.
 
 # Returns
-- `NamedTuple`: A named tuple containing the following keys:
-    - `candidates`: A vector of dictionaries, each representing a generation candidate.
-    - `safety_ratings`: A dictionary containing safety ratings for the prompt feedback.
-    - `text`: A string representing the concatenated text from all candidates.
-    - `function_calls`: Optional vector of function calls from the model.
-    - `response_status`: An integer representing the HTTP response status code.
-    - `finish_reason`: A string indicating the reason why the generation process was finished.
+A named tuple with:
+- `text`: The answer text (thought summaries excluded).
+- `images`: Generated images as `(data, mime_type)` tuples.
+- `function_calls`: `FunctionCall`s requested by the model, or `nothing`.
+- `finish_reason`, `usage_metadata`, `safety_ratings`, `candidates`: As reported by the API.
+- `response_status`: The HTTP status code.
 """
 function generate_content(
     provider::AbstractGoogleProvider,
     model_name::String,
-    conversation::Vector{Dict{Symbol,Any}};
+    contents;
+    image_path::String="",
+    images::AbstractVector=NamedTuple[],
     config::GenerateContentConfig=GenerateContentConfig(),
 )
-    endpoint = "models/$model_name:generateContent"
-    body = _build_request_body(conversation, config)
-    response = _request(provider, endpoint, :POST, body; config.http_options...)
-    return _parse_response(response)
-end
-
-function generate_content(
-    api_key::String,
-    model_name::String,
-    conversation::Vector{Dict{Symbol,Any}};
-    config=GenerateContentConfig(),
-)
-    return generate_content(GoogleProvider(; api_key), model_name, conversation; config)
-end
-
-function generate_content(
-    provider::AbstractGoogleProvider,
-    model_name::String,
-    prompt::String;
-    image_path::String="",
-    images::AbstractVector=NamedTuple[],
-    config=GenerateContentConfig(),
-)
-    parts = Dict{String,Any}[Dict("text" => prompt)]
-    append!(parts, _image_inline_parts(; image_path, images))
-    conversation = [Dict(:role => "user", :parts => parts)]
-    return generate_content(provider, model_name, conversation; config)
-end
-
-function generate_content(
-    api_key::String,
-    model_name::String,
-    prompt::String;
-    image_path::String="",
-    images::AbstractVector=NamedTuple[],
-    config=GenerateContentConfig(),
-)
-    return generate_content(
-        GoogleProvider(; api_key), model_name, prompt; image_path, images, config
+    body = _build_request_body(_with_media(contents, image_path, images), config)
+    endpoint = "$(_model_path(model_name)):generateContent"
+    return _parse_response(
+        _request(provider, endpoint, :POST, body; config.http_options...)
     )
 end
 
-function generate_content(
-    provider::AbstractGoogleProvider,
-    model_name::String,
-    contents::AbstractVector;
-    image_path::String="",
-    images::AbstractVector=NamedTuple[],
-    config=GenerateContentConfig(),
-)
-    parts = _convert_contents(contents)
-    append!(parts, _image_inline_parts(; image_path, images))
-    conversation = [Dict(:role => "user", :parts => parts)]
-    return generate_content(provider, model_name, conversation; config)
+function generate_content(api_key::String, model_name::String, contents; kwargs...)
+    return generate_content(GoogleProvider(; api_key), model_name, contents; kwargs...)
 end
 
-function generate_content(
-    api_key::String,
-    model_name::String,
-    contents::AbstractVector;
-    image_path::String="",
-    images::AbstractVector=NamedTuple[],
-    config=GenerateContentConfig(),
-)
-    return generate_content(
-        GoogleProvider(; api_key), model_name, contents; image_path, images, config
-    )
+function generate_content(model_name::String, contents; kwargs...)
+    return generate_content(GoogleProvider(), model_name, contents; kwargs...)
 end
 
 function _take_lines!(buf::Vector{UInt8})
@@ -326,406 +127,151 @@ function _take_lines!(buf::Vector{UInt8})
 end
 
 function _parse_stream_chunk(chunk_data, status)
-    candidates = get(chunk_data, :candidates, ())
-    isempty(candidates) && return nothing
+    isempty(get(chunk_data, :candidates, ())) && return nothing
+    return (; _parse_body(chunk_data)..., status=status)
+end
 
-    candidate = candidates[1]
-    content = get(candidate, :content, nothing)
-    parts = content === nothing ? () : get(content, :parts, ())
-    text = join(p.text for p in parts if _is_answer_text(p))
-
+function _error_chunk(e)
     return (
-        candidates=candidates,
-        safety_ratings=get(chunk_data, :safetyRatings, Dict{Any,Any}()),
-        text=text,
-        status=status,
-        finish_reason=get(candidate, :finishReason, nothing),
-        usage_metadata=get(chunk_data, :usageMetadata, Dict{Symbol,Any}()),
+        error=e isa HTTP.RequestError ? e.error : e,
+        text="",
+        finish_reason="ERROR",
+        is_final=true,
     )
 end
 
 """
-    generate_content_stream(provider::AbstractGoogleProvider, model_name::String, prompt::String; image_path::String="", images=NamedTuple[], config=GenerateContentConfig()) -> Channel
-    generate_content_stream(api_key::String, model_name::String, prompt::String; image_path::String="", images=NamedTuple[], config=GenerateContentConfig()) -> Channel
-    generate_content_stream(provider::AbstractGoogleProvider, model_name::String, conversation::Vector{Dict{Symbol,Any}}; config=GenerateContentConfig()) -> Channel
-    generate_content_stream(api_key::String, model_name::String, conversation::Vector{Dict{Symbol,Any}}; config=GenerateContentConfig()) -> Channel
+    generate_content_stream([provider | api_key], model_name, contents; image_path="", images=NamedTuple[], config=GenerateContentConfig()) -> Channel
 
-Generate content in a streaming fashion, returning partial results as they become available.
-
-# Arguments
-- `provider::AbstractGoogleProvider`: The provider instance for API requests.
-- `api_key::String`: Your Google API key as a string.
-- `model_name::String`: The model to use for content generation.
-- `prompt::String`: The text prompt.
-- `conversation::Vector{Dict{Symbol,Any}}`: The conversation history.
-
-# Keyword Arguments
-- `image_path::String` (optional, legacy): The path to an image file to send with `prompt`.
-- `images::AbstractVector` (optional): Images to send with `prompt`. Supports NamedTuples with `path` and `mime_type` keys.
-- `config::GenerateContentConfig` (optional): Configuration for the generation request.
+Generate a response as a stream, yielding partial results as they arrive. Arguments are the
+same as for [`generate_content`](@ref).
 
 # Returns
 - `Channel`: A channel that yields one named tuple per streamed chunk, with fields:
   - `text::String`: The text in this chunk.
   - `full_text::String`: All text received so far.
   - `function_calls`: The function calls received so far, or `nothing`.
+  - `images`: Images in this chunk.
   - `finish_reason`: Why generation stopped; `nothing` until the last chunk.
   - `usage_metadata`: Token counts reported with this chunk.
   - `candidates`, `safety_ratings`, `status`: The raw candidates, safety ratings and HTTP status.
 
   If the request fails, including an error sent partway through the stream, the last
-  item instead has an `error` field holding the exception, with `text=""` and
-  `finish_reason="ERROR"`.
+  item instead has an `error` field holding the exception (usually a
+  [`GeminiAPIError`](@ref)), with `text=""` and `finish_reason="ERROR"`.
 """
 function generate_content_stream(
     provider::AbstractGoogleProvider,
     model_name::String,
-    conversation::Vector{Dict{Symbol,Any}};
+    contents;
+    image_path::String="",
+    images::AbstractVector=NamedTuple[],
     config::GenerateContentConfig=GenerateContentConfig(),
 )
-    endpoint = "models/$model_name:streamGenerateContent"
-    body = _build_request_body(conversation, config)
+    body = JSON3.write(
+        _build_request_body(_with_media(contents, image_path, images), config)
+    )
+    url = _url(provider, "$(_model_path(model_name)):streamGenerateContent")
+    channel = Channel{NamedTuple}(32)
 
-    processed_channel = Channel{NamedTuple}(32)
-
-    url = "$(provider.base_url)/$(provider.api_version)/$endpoint"
-
-    @async begin
-        try
+    @async try
+        full_text = ""
+        function_calls = FunctionCall[]
+        _with_retries(provider) do
             HTTP.open(
                 "POST",
                 url;
                 headers=_headers(provider),
                 query=Dict("alt" => "sse"),
+                _http_options(provider)...,
                 config.http_options...,
+                status_exception=false,
             ) do stream
-                write(stream, JSON3.write(body))
+                write(stream, body)
                 HTTP.closewrite(stream)
-
                 response = HTTP.startread(stream)
-
                 if response.status >= 400
                     response.body = read(stream)
-                    status_error(response)
+                    throw(GeminiAPIError(response))
                 end
 
                 pending = UInt8[]
                 while !eof(stream)
-                    chunk = readavailable(stream)
-                    if isempty(chunk)
-                        sleep(0.005)
-                        continue
-                    end
-
-                    append!(pending, chunk)
+                    append!(pending, readavailable(stream))
                     for line in _take_lines!(pending)
                         line = strip(line)
                         startswith(line, "data: ") || continue
-
-                        data_str = SubString(line, 7)  # Remove "data: " prefix
-                        data_str == "[DONE]" && continue
-
-                        chunk_data = try
-                            JSON3.read(data_str)
+                        data = SubString(line, 7)
+                        data == "[DONE]" && continue
+                        event = try
+                            JSON3.read(data)
                         catch e
                             @warn "Failed to parse chunk: $e"
                             continue
                         end
-                        haskey(chunk_data, :error) &&
-                            error("Stream returned an error: $data_str")
-
-                        parsed = _parse_stream_chunk(chunk_data, response.status)
-                        parsed === nothing || put!(processed_channel, parsed)
-                    end
-                end
-            end
-
-        catch e
-            err = e isa HTTP.RequestError ? e.error : e
-            put!(
-                processed_channel,
-                (error=err, text="", finish_reason="ERROR", is_final=true),
-            )
-        finally
-            close(processed_channel)
-        end
-    end
-
-    result_channel = Channel{NamedTuple}(32)
-
-    @async begin
-        try
-            full_text = ""
-            function_calls = []
-
-            for chunk in processed_channel
-                if haskey(chunk, :error)
-                    put!(result_channel, chunk)
-                    break
-                end
-                full_text = string(full_text, chunk.text)
-
-                if haskey(chunk, :candidates) && !isempty(chunk.candidates)
-                    content = get(chunk.candidates[1], :content, nothing)
-                    if content !== nothing && haskey(content, :parts)
-                        for part in content.parts
-                            if haskey(part, :functionCall) && part.functionCall !== nothing
-                                fc = part.functionCall
-                                name = get(fc, :name, "")
-                                args_str = get(fc, :args, "{}")
-                                args = if typeof(args_str) <: AbstractDict
-                                    Dict{String,Any}(
-                                        String(k) => v for (k, v) in pairs(args_str)
-                                    )
-                                else
-                                    JSON3.read(args_str, Dict{String,Any})
-                                end
-
-                                push!(function_calls, FunctionCall(name, args))
-                            end
+                        if haskey(event, :error)
+                            put!(
+                                channel, _error_chunk(GeminiAPIError(response.status, data))
+                            )
+                            return nothing
                         end
+                        chunk = _parse_stream_chunk(event, response.status)
+                        chunk === nothing && continue
+                        full_text *= chunk.text
+                        chunk.function_calls === nothing ||
+                            append!(function_calls, chunk.function_calls)
+                        calls = isempty(function_calls) ? nothing : copy(function_calls)
+                        put!(channel, (; chunk..., full_text, function_calls=calls))
                     end
                 end
-
-                combined_chunk = (
-                    candidates=chunk.candidates,
-                    safety_ratings=chunk.safety_ratings,
-                    text=chunk.text,
-                    full_text=full_text,
-                    function_calls=isempty(function_calls) ? nothing : function_calls,
-                    status=chunk.status,
-                    finish_reason=chunk.finish_reason,
-                    usage_metadata=chunk.usage_metadata,
-                )
-
-                put!(result_channel, combined_chunk)
-
-                if chunk.finish_reason !== nothing
-                    break
-                end
             end
-        finally
-            close(result_channel)
         end
+    catch e
+        put!(channel, _error_chunk(e))
+    finally
+        close(channel)
     end
 
-    return result_channel
+    return channel
 end
 
-function generate_content_stream(
-    api_key::String,
-    model_name::String,
-    conversation::Vector{Dict{Symbol,Any}};
-    config=GenerateContentConfig(),
-)
+function generate_content_stream(api_key::String, model_name::String, contents; kwargs...)
     return generate_content_stream(
-        GoogleProvider(; api_key), model_name, conversation; config
+        GoogleProvider(; api_key), model_name, contents; kwargs...
     )
 end
 
-function generate_content_stream(
+function generate_content_stream(model_name::String, contents; kwargs...)
+    return generate_content_stream(GoogleProvider(), model_name, contents; kwargs...)
+end
+
+"""
+    count_tokens([provider | api_key], model_name, contents; config=GenerateContentConfig()) -> Int
+
+Count the tokens `contents` (anything [`generate_content`](@ref) accepts) would use with
+`model_name`. The system instruction, tools and other request fields in `config` are counted
+too.
+"""
+function count_tokens(
     provider::AbstractGoogleProvider,
     model_name::String,
-    prompt::String;
-    image_path::String="",
-    images::AbstractVector=NamedTuple[],
-    config=GenerateContentConfig(),
+    contents;
+    config::GenerateContentConfig=GenerateContentConfig(),
 )
-    parts = Dict{String,Any}[Dict("text" => prompt)]
-    append!(parts, _image_inline_parts(; image_path, images))
-    conversation = [Dict(:role => "user", :parts => parts)]
-    return generate_content_stream(provider, model_name, conversation; config=config)
-end
-
-function generate_content_stream(
-    api_key::String,
-    model_name::String,
-    prompt::String;
-    image_path::String="",
-    images::AbstractVector=NamedTuple[],
-    config=GenerateContentConfig(),
-)
-    return generate_content_stream(
-        GoogleProvider(; api_key), model_name, prompt; image_path, images, config
+    model = _model_path(model_name)
+    request = _build_request_body(_to_contents(contents), config)
+    request["model"] = model
+    body = Dict("generateContentRequest" => request)
+    result = _request_json(
+        provider, "$model:countTokens", :POST, body; config.http_options...
     )
+    return get(result, :totalTokens, 0)
 end
 
-"""
-    count_tokens(provider::AbstractGoogleProvider, model_name::String, prompt::String) -> Int
-    count_tokens(api_key::String, model_name::String, prompt::String) -> Int
-
-Calculate the number of tokens generated by the specified model for a given prompt string.
-
-# Arguments
-- `provider::AbstractGoogleProvider`: The provider instance containing API key and base URL information.
-- `api_key::String`: Your Google API key as a string. 
-- `model_name::String`: The name of the model to use for generating content. 
-- `prompt::String`: The prompt prompt based on which the text is generated.
-
-# Returns
-- `Int`: The total number of tokens that the given prompt string would be broken into by the specified model's tokenizer.
-"""
-function count_tokens(provider::AbstractGoogleProvider, model_name::String, prompt::String)
-    endpoint = "models/$model_name:countTokens"
-    body = Dict("contents" => [Dict("parts" => [Dict("text" => prompt)])])
-    response = _request(provider, endpoint, :POST, body)
-    total_tokens = get(JSON3.read(response.body), "totalTokens", 0)
-    return total_tokens
+function count_tokens(api_key::String, model_name::String, contents; kwargs...)
+    return count_tokens(GoogleProvider(; api_key), model_name, contents; kwargs...)
 end
 
-function count_tokens(api_key::String, model_name::String, prompt::String)
-    return count_tokens(GoogleProvider(; api_key), model_name, prompt)
-end
-
-"""
-    generate_content(model_name::String, conversation::Vector{Dict{Symbol,Any}}; config=GenerateContentConfig()) -> NamedTuple
-
-Generate content using automatic API key detection from environment variables.
-
-# Arguments
-- `model_name::String`: The model to use for content generation.
-- `conversation::Vector{Dict{Symbol,Any}}`: The conversation history.
-
-# Keyword Arguments
-- `config::GenerateContentConfig` (optional): Configuration for the generation request.
-
-# Returns
-- `NamedTuple`: Same as other generate_content functions.
-"""
-function generate_content(
-    model_name::String,
-    conversation::Vector{Dict{Symbol,Any}};
-    config=GenerateContentConfig(),
-)
-    return generate_content(GoogleProvider(), model_name, conversation; config)
-end
-
-"""
-    generate_content(model_name::String, prompt::String; image_path::String="", config=GenerateContentConfig()) -> NamedTuple
-
-Generate content using automatic API key detection from environment variables.
-
-# Arguments
-- `model_name::String`: The model to use for content generation.
-- `prompt::String`: The text prompt.
-
-# Keyword Arguments
-- `image_path::String` (optional, legacy): The path to the image file to include in the request.
-- `images::AbstractVector` (optional): The images to include in the request. Supports NamedTuples with `path` and `mime_type` keys.
-- `config::GenerateContentConfig` (optional): Configuration for the generation request.
-
-# Returns
-- `NamedTuple`: Same as other generate_content functions.
-"""
-function generate_content(
-    model_name::String,
-    prompt::String;
-    image_path::String="",
-    images::AbstractVector=NamedTuple[],
-    config=GenerateContentConfig(),
-)
-    return generate_content(
-        GoogleProvider(), model_name, prompt; image_path, images, config
-    )
-end
-
-"""
-    generate_content(model_name::String, contents::AbstractVector; image_path::String="", config=GenerateContentConfig()) -> NamedTuple
-
-Generate content using automatic API key detection from environment variables.
-
-# Arguments
-- `model_name::String`: The model to use for content generation.
-- `contents::AbstractVector`: The contents vector.
-
-# Keyword Arguments
-- `image_path::String` (optional, legacy): The path to the image file to include in the request.
-- `images::AbstractVector` (optional): The images to include in the request. Supports NamedTuples with `path` and `mime_type` keys.
-- `config::GenerateContentConfig` (optional): Configuration for the generation request.
-
-# Returns
-- `NamedTuple`: Same as other generate_content functions.
-"""
-function generate_content(
-    model_name::String,
-    contents::AbstractVector;
-    image_path::String="",
-    images::AbstractVector=NamedTuple[],
-    config=GenerateContentConfig(),
-)
-    return generate_content(
-        GoogleProvider(), model_name, contents; image_path, images, config
-    )
-end
-
-"""
-    generate_content_stream(model_name::String, conversation::Vector{Dict{Symbol,Any}}; image_path::String="", config=GenerateContentConfig()) -> Channel
-
-Generate streaming content using automatic API key detection from environment variables.
-
-# Arguments
-- `model_name::String`: The model to use for content generation.
-- `conversation::Vector{Dict{Symbol,Any}}`: The conversation history.
-
-# Keyword Arguments
-- `image_path::String` (optional, legacy): The path to the image file to include in the request.
-- `images::AbstractVector` (optional): The images to include in the request. Supports NamedTuples with `path` and `mime_type` keys.
-- `config::GenerateContentConfig` (optional): Configuration for the generation request.
-
-# Returns
-- `Channel`: Same as other generate_content_stream functions.
-"""
-function generate_content_stream(
-    model_name::String,
-    conversation::Vector{Dict{Symbol,Any}};
-    image_path::String="",
-    images::AbstractVector=NamedTuple[],
-    config=GenerateContentConfig(),
-)
-    return generate_content_stream(GoogleProvider(), model_name, conversation; config)
-end
-
-"""
-    generate_content_stream(model_name::String, prompt::String; image_path::String="", config=GenerateContentConfig()) -> Channel
-
-Generate streaming content using automatic API key detection from environment variables.
-
-# Arguments
-- `model_name::String`: The model to use for content generation.
-- `prompt::String`: The text prompt.
-
-# Keyword Arguments
-- `image_path::String` (optional): The path to the image file to include in the request.
-- `images::AbstractVector` (optional): The images to include in the request. Supports NamedTuples with `path` and `mime_type` keys.
-- `config::GenerateContentConfig` (optional): Configuration for the generation request.
-
-# Returns
-- `Channel`: Same as other generate_content_stream functions.
-"""
-function generate_content_stream(
-    model_name::String,
-    prompt::String;
-    image_path::String="",
-    images::AbstractVector=NamedTuple[],
-    config=GenerateContentConfig(),
-)
-    return generate_content_stream(
-        GoogleProvider(), model_name, prompt; image_path, images, config
-    )
-end
-
-"""
-    count_tokens(model_name::String, prompt::String) -> Int
-
-Count tokens using automatic API key detection from environment variables.
-
-# Arguments
-- `model_name::String`: The name of the model to use for token counting.  
-- `prompt::String`: The prompt to count tokens for.
-
-# Returns
-- `Int`: The total number of tokens.
-"""
-function count_tokens(model_name::String, prompt::String)
-    return count_tokens(GoogleProvider(), model_name, prompt)
+function count_tokens(model_name::String, contents; kwargs...)
+    return count_tokens(GoogleProvider(), model_name, contents; kwargs...)
 end
