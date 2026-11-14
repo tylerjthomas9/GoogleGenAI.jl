@@ -67,15 +67,12 @@ end
     fc = response.function_calls[1]
     result = get_weather(; location=get(fc.args, "location", "unknown"))
 
-    # Add to conversation with model's function call
-    model_msg = Dict(
-        :role => "model",
-        :parts => [Dict(:functionCall => Dict(:name => fc.name, :args => fc.args))],
-    )
+    # Send the model's turn back unchanged; Gemini 3 needs its thought signatures.
+    model_msg = Dict(:role => "model", :parts => response.candidates[1][:content][:parts])
 
     # Add function response
     func_msg = Dict(
-        :role => "function",
+        :role => "user",
         :parts => [Dict(:functionResponse => Dict(:name => fc.name, :response => result))],
     )
 
@@ -161,7 +158,7 @@ end
     )
 
     @test length(updated_convo) == 2
-    @test updated_convo[2][:role] == "function"
+    @test updated_convo[2][:role] == "user"
     @test haskey(updated_convo[2][:parts][1], :functionResponse)
 end
 

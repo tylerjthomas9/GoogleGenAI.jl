@@ -146,7 +146,7 @@ function add_function_result_to_conversation(
     end
 
     function_response = Dict(
-        :role => "function",
+        :role => "user",
         :parts => [
             Dict(
                 :functionResponse => Dict(

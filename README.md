@@ -867,20 +867,9 @@ response = generate_content(
     config=config
 )
 
-# Step 5: Extract the function call details and construct the model's turn
+# Step 5: Keep the model's turn as-is (Gemini 3 needs its thought signatures sent back)
 function_name = response.function_calls[1].name
-args = response.function_calls[1].args
-model_message = Dict(
-    :role => "model",
-    :parts => [
-        Dict(
-            :functionCall => Dict(
-                :name => function_name,
-                :args => args
-            )
-        )
-    ]
-)
+model_message = Dict(:role => "model", :parts => response.candidates[1][:content][:parts])
 println("\nModel message: ", JSON3.write(model_message))
 
 # Step 6: Execute the function (simulated) and create the function's response message
@@ -892,7 +881,7 @@ weather_result = Dict(
 )
 
 function_message = Dict(
-    :role => "function",
+    :role => "user",
     :parts => [
         Dict(
             :functionResponse => Dict(
