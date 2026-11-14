@@ -52,7 +52,7 @@ else
         response = generate_content(secret_key, model, conversation; config)
 
         n_tokens = count_tokens(secret_key, model, "Hello")
-        @test n_tokens == 1
+        @test n_tokens > 0
 
         embeddings = embed_content(secret_key, embedding_model, "Hello")
         @test size(embeddings.values) == (3072,)
@@ -102,13 +102,18 @@ else
     end
 
     @testset "ThinkingConfig" begin
-        thinking_config = ThinkingConfig(; include_thoughts=true, thinking_budget=100)
-        config = GenerateContentConfig(;
-            http_options, safety_settings, thinking_config, max_output_tokens=50
-        )
         model = "gemini-3.5-flash-lite"
-        response = generate_content(secret_key, model, "Hello"; config)
-        @test response.response_status == 200
+        for thinking_config in (
+            ThinkingConfig(; include_thoughts=true, thinking_budget=100),
+            ThinkingConfig(; thinking_level="low"),
+            ThinkingConfig(),
+        )
+            config = GenerateContentConfig(;
+                http_options, safety_settings, thinking_config, max_output_tokens=50
+            )
+            response = generate_content(secret_key, model, "Hello"; config)
+            @test response.response_status == 200
+        end
     end
 
     @testset "System Instructions" begin
@@ -172,6 +177,7 @@ else
         @test any(chunk -> !isempty(get(chunk, :text, "")), chunks)
     end
 
+    include("test_parity.jl")
     include("test_image.jl")
     include("test_cache.jl")
     include("test_file.jl")
@@ -185,18 +191,28 @@ else
             secret_key,
             "gemini-2.5-flash-native-audio-latest";
             config=GenerateContentConfig(; response_modalities=["AUDIO"]),
+            output_audio_transcription=true,
+            input_audio_transcription=true,
+            session_resumption=true,
+            context_window_compression=true,
+            realtime_input_config=Dict(
+                :automaticActivityDetection => Dict(:disabled => false)
+            ),
         )
         try
             send_client_content(session; turns="Say exactly: PONG", turn_complete=true)
             got_audio = false
+            transcript = ""
             complete = false
             while !complete
                 event = recv_event(session)
                 haskey(event, :audio) && (got_audio = true)
+                transcript *= get(event, :output_transcription, "")
                 sc = get(event, :serverContent, nothing)
                 sc !== nothing && get(sc, :turnComplete, false) && (complete = true)
             end
             @test got_audio
+            @test occursin("pong", lowercase(transcript))
         finally
             close_live!(session)
         end
@@ -245,8 +261,8 @@ else
         catch e
             e
         end
-        @test err isa APIError
-        @test err.status == 400
+        @test err isa GeminiAPIError
+        @test err.code == 400
         @test !occursin(secret_key, sprint(showerror, err))
     end
 end

@@ -70,10 +70,9 @@ end
 
         @test [c.text for c in chunks] == ["Hel", ""]
         @test chunks[end].finish_reason == "ERROR"
-        @test chunks[end].error isa APIError
-        @test chunks[end].error.status == 503
         msg = sprint(showerror, chunks[end].error)
         @test occursin("The model is overloaded", msg)
+        @test chunks[end].error.code == 503
         @test !occursin("key=test", msg)
     end
 end
@@ -85,8 +84,8 @@ end
         chunks = collect(generate_content_stream(provider, "test-model", "hi"))
 
         @test length(chunks) == 1
-        @test only(chunks).error isa APIError
         msg = sprint(showerror, only(chunks).error)
+        @test only(chunks).error isa GeminiAPIError
         @test occursin("400", msg)
         @test occursin("API key not valid", msg)
         @test !occursin("key=test", msg)
@@ -137,7 +136,8 @@ end
         @test call_turn.parts[2].thoughtSignature == "sig"
         @test bodies[3].contents[5].parts[1].functionResponse.response.temperature == 25
 
-        @test length(chat.history) == 4
-        @test chat.history[4][:parts] == [Dict(:text => "It's 25 degrees.")]
+        @test [turn[:role] for turn in chat.history] == ["user", "model", "user", "model", "user", "model"]
+        @test chat.history[4][:parts][2][:functionCall][:name] == "get_weather"
+        @test chat.history[6][:parts] == [Dict(:text => "It's 25 degrees.")]
     end
 end

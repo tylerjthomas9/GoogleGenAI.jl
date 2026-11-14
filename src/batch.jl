@@ -1,19 +1,19 @@
 """
-    BatchRequest(prompt::String; key::String="", config::GenerateContentConfig=GenerateContentConfig())
+    BatchRequest(prompt; key::String="", config::GenerateContentConfig=GenerateContentConfig())
 
-A single request inside an inline batch job. `key` is an optional user-defined
-identifier used to match each response to its request in the batch output;
-if empty, a default key `"request-N"` is assigned when the job is created.
+A single request inside an inline batch job. `prompt` is anything [`generate_content`](@ref)
+accepts as `contents`, and every field of `config` that applies to a request (system
+instruction, tools, tool config, safety settings, generation settings, cache) is sent with it.
+`key` is an optional identifier used to match each response to its request in the batch
+output; if empty, a default key `"request-N"` is assigned when the job is created.
 """
 Base.@kwdef struct BatchRequest
-    prompt::String
+    prompt::Any
     key::String = ""
     config::GenerateContentConfig = GenerateContentConfig()
 end
 
-function BatchRequest(prompt::AbstractString; kwargs...)
-    return BatchRequest(; prompt=String(prompt), kwargs...)
-end
+BatchRequest(prompt; kwargs...) = BatchRequest(; prompt, kwargs...)
 
 const COMPLETED_BATCH_STATES = (
     "JOB_STATE_SUCCEEDED", "JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_EXPIRED"
@@ -21,32 +21,26 @@ const COMPLETED_BATCH_STATES = (
 
 _is_completed_state(state::AbstractString) = state ∈ COMPLETED_BATCH_STATES
 
-function _batch_request_payload(req::BatchRequest)
-    request_body = Dict{String,Any}(
-        "contents" => [Dict("role" => "user", "parts" => [Dict("text" => req.prompt)])],
-        "generationConfig" => GoogleGenAI._build_generation_config(req.config),
+function _batch_request_payload(req::BatchRequest, index::Integer=1)
+    return Dict{String,Any}(
+        "request" => _build_request_body(_to_contents(req.prompt), req.config),
+        "metadata" => Dict("key" => isempty(req.key) ? "request-$index" : req.key),
     )
-    if req.config.system_instruction !== nothing
-        request_body["systemInstruction"] = GoogleGenAI._format_system_instruction(
-            req.config.system_instruction
-        )
-    end
-    payload = Dict{String,Any}("request" => request_body)
-    if !isempty(req.key)
-        payload["metadata"] = Dict("key" => req.key)
-    end
-    return payload
 end
 
-function _build_inline_requests(requests::Vector{<:BatchRequest})
-    payloads = Vector{Dict{String,Any}}(undef, length(requests))
-    for (i, req) in enumerate(requests)
-        payload = _batch_request_payload(req)
-        key = isempty(req.key) ? "request-$i" : req.key
-        payload["metadata"] = Dict("key" => key)
-        payloads[i] = payload
+function _batch_body(inline, input_file, display_name)
+    if (inline === nothing) == (input_file === nothing)
+        throw(ArgumentError("exactly one of `requests` or `input_file` must be provided"))
     end
-    return payloads
+    source = if inline === nothing
+        Dict("file_name" => input_file)
+    else
+        Dict("requests" => Dict("requests" => inline))
+    end
+    name = isempty(display_name) ? nothing : display_name
+    return Dict{String,Any}(
+        "batch" => _compact("input_config" => source, "display_name" => name)
+    )
 end
 
 function _build_batch_request_body(;
@@ -54,19 +48,12 @@ function _build_batch_request_body(;
     input_file::Union{Nothing,String}=nothing,
     display_name::String="",
 )
-    if (requests === nothing) == (input_file === nothing)
-        throw(ArgumentError("exactly one of `requests` or `input_file` must be provided"))
-    end
-
-    input_config = if requests !== nothing
-        Dict("requests" => Dict("requests" => _build_inline_requests(requests)))
+    inline = if requests === nothing
+        nothing
     else
-        Dict("requests" => Dict("file_name" => input_file))
+        [_batch_request_payload(r, i) for (i, r) in enumerate(requests)]
     end
-
-    batch = Dict{String,Any}("input_config" => input_config)
-    isempty(display_name) || (batch["display_name"] = display_name)
-    return Dict{String,Any}("batch" => batch)
+    return _batch_body(inline, input_file, display_name)
 end
 
 """
@@ -91,7 +78,7 @@ Returns the created batch operation object; use `obj[:name]` (e.g.
 
 # Example
 ```julia
-job = create_batch_job("gemini-2.5-flash"; requests=[
+job = create_batch_job("gemini-3.5-flash"; requests=[
     BatchRequest("Tell me a one-sentence joke."; key="request-1"),
     BatchRequest("Why is the sky blue?"; key="request-2"),
 ])
@@ -105,28 +92,86 @@ function create_batch_job(
     display_name::String="",
     http_kwargs...,
 )
-    if (requests === nothing) == (input_file === nothing)
-        throw(ArgumentError("exactly one of `requests` or `input_file` must be provided"))
-    end
-    model_name = startswith(model_name, "models/") ? model_name : "models/$model_name"
-
-    body = _build_batch_request_body(;
-        requests=requests, input_file=input_file, display_name=display_name
-    )
-
-    response = _request(
-        provider, "$model_name:batchGenerateContent", :POST, body; http_kwargs...
-    )
-    return JSON3.read(String(response.body))
+    body = _build_batch_request_body(; requests, input_file, display_name)
+    endpoint = "$(_model_path(model_name)):batchGenerateContent"
+    return _request_json(provider, endpoint, :POST, body; http_kwargs...)
 end
 
 function create_batch_job(api_key::String, model_name::String; kwargs...)
-    return create_batch_job(GoogleProvider(; api_key=api_key), model_name; kwargs...)
+    return create_batch_job(GoogleProvider(; api_key), model_name; kwargs...)
 end
 
 function create_batch_job(model_name::String; kwargs...)
     return create_batch_job(GoogleProvider(), model_name; kwargs...)
 end
+
+"""
+    create_embeddings_batch_job(
+        api_thing, model_name::String;
+        contents::Union{Nothing,AbstractVector}=nothing,
+        input_file::Union{Nothing,String}=nothing,
+        display_name::String="",
+        task_type=nothing, title=nothing, output_dimensionality=nothing,
+        http_kwargs...,
+    ) -> JSON3.Object
+
+Creates an asynchronous batch embedding job. Pass either `contents`, a vector with one entry
+per embedding (in any form [`embed_content`](@ref) accepts), or the name of an uploaded JSONL
+file as `input_file`. `task_type`, `title` and `output_dimensionality` apply to every inline
+request. Track the job with [`get_batch_job`](@ref) and [`poll_batch_job`](@ref).
+"""
+function create_embeddings_batch_job(
+    provider::AbstractGoogleProvider,
+    model_name::String;
+    contents::Union{Nothing,AbstractVector}=nothing,
+    input_file::Union{Nothing,String}=nothing,
+    display_name::String="",
+    task_type=nothing,
+    title=nothing,
+    output_dimensionality=nothing,
+    http_kwargs...,
+)
+    model = _model_path(model_name)
+    inline = if contents === nothing
+        nothing
+    else
+        [
+            Dict(
+                "request" =>
+                    _embed_request(model, c; task_type, title, output_dimensionality),
+                "metadata" => Dict("key" => "request-$i"),
+            ) for (i, c) in enumerate(contents)
+        ]
+    end
+    body = _batch_body(inline, input_file, display_name)
+    return _request_json(
+        provider, "$model:asyncBatchEmbedContent", :POST, body; http_kwargs...
+    )
+end
+
+function create_embeddings_batch_job(api_key::String, model_name::String; kwargs...)
+    return create_embeddings_batch_job(GoogleProvider(; api_key), model_name; kwargs...)
+end
+
+function create_embeddings_batch_job(model_name::String; kwargs...)
+    return create_embeddings_batch_job(GoogleProvider(), model_name; kwargs...)
+end
+
+"""
+    list_batch_jobs(api_thing; page_size=nothing, http_kwargs...) -> Vector
+
+Lists all batch jobs (operation objects) in your project, fetching all pages.
+"""
+function list_batch_jobs(
+    provider::AbstractGoogleProvider; page_size=nothing, http_kwargs...
+)
+    return _paginate(provider, "batches", :operations; page_size, http_kwargs...)
+end
+
+function list_batch_jobs(api_key::String; kwargs...)
+    return list_batch_jobs(GoogleProvider(; api_key); kwargs...)
+end
+list_batch_jobs(; kwargs...) = list_batch_jobs(GoogleProvider(); kwargs...)
 
 """
     get_batch_job(api_thing, job_name::String; http_kwargs...) -> JSON3.Object
@@ -138,12 +183,11 @@ Inspect `metadata.state` for the job state (one of `JOB_STATE_PENDING`,
 the job has succeeded.
 """
 function get_batch_job(provider::AbstractGoogleProvider, job_name::String; http_kwargs...)
-    response = _request(provider, job_name, :GET, Dict(); http_kwargs...)
-    return JSON3.read(String(response.body))
+    return _request_json(provider, job_name, :GET; http_kwargs...)
 end
 
 function get_batch_job(api_key::String, job_name::String; http_kwargs...)
-    return get_batch_job(GoogleProvider(; api_key=api_key), job_name; http_kwargs...)
+    return get_batch_job(GoogleProvider(; api_key), job_name; http_kwargs...)
 end
 
 function get_batch_job(job_name::String; http_kwargs...)
@@ -180,7 +224,7 @@ function poll_batch_job(
 end
 
 function poll_batch_job(api_key::String, job_name::String; kwargs...)
-    return poll_batch_job(GoogleProvider(; api_key=api_key), job_name; kwargs...)
+    return poll_batch_job(GoogleProvider(; api_key), job_name; kwargs...)
 end
 
 function poll_batch_job(job_name::String; kwargs...)
@@ -202,12 +246,11 @@ final state becomes `JOB_STATE_CANCELLED`.
 function cancel_batch_job(
     provider::AbstractGoogleProvider, job_name::String; http_kwargs...
 )
-    response = _request(provider, "$job_name:cancel", :POST, Dict(); http_kwargs...)
-    return JSON3.read(String(response.body))
+    return _request_json(provider, "$job_name:cancel", :POST; http_kwargs...)
 end
 
 function cancel_batch_job(api_key::String, job_name::String; http_kwargs...)
-    return cancel_batch_job(GoogleProvider(; api_key=api_key), job_name; http_kwargs...)
+    return cancel_batch_job(GoogleProvider(; api_key), job_name; http_kwargs...)
 end
 
 function cancel_batch_job(job_name::String; http_kwargs...)
@@ -223,12 +266,11 @@ the list of batch jobs.
 function delete_batch_job(
     provider::AbstractGoogleProvider, job_name::String; http_kwargs...
 )
-    response = _request(provider, job_name, :DELETE, Dict(); http_kwargs...)
-    return JSON3.read(String(response.body))
+    return _request_json(provider, job_name, :DELETE; http_kwargs...)
 end
 
 function delete_batch_job(api_key::String, job_name::String; http_kwargs...)
-    return delete_batch_job(GoogleProvider(; api_key=api_key), job_name; http_kwargs...)
+    return delete_batch_job(GoogleProvider(; api_key), job_name; http_kwargs...)
 end
 
 function delete_batch_job(job_name::String; http_kwargs...)
@@ -245,29 +287,22 @@ describing an error for that specific request.
 function download_batch_output_file(
     provider::AbstractGoogleProvider, file_name::String; http_kwargs...
 )
-    url = "$(provider.base_url)/download/$(provider.api_version)/$file_name:download"
-    response = HTTP.get(
-        url;
-        headers=_headers(provider),
-        query=Dict("alt" => "media"),
-        status_exception=false,
-        http_kwargs...,
-    )
-    _check_status(response)
-    content = String(response.body)
-    lines = filter(!isempty, strip.(split(content, '\n')))
-    return [JSON3.read(line) for line in lines]
+    content = String(download_file(provider, file_name; http_kwargs=(; http_kwargs...)))
+    return [
+        JSON3.read(line) for line in eachline(IOBuffer(content)) if !isempty(strip(line))
+    ]
+end
+
+function download_batch_output_file(api_key::String, file_name::String; http_kwargs...)
+    return download_batch_output_file(GoogleProvider(; api_key), file_name; http_kwargs...)
 end
 
 function download_batch_output_file(file_name::String; http_kwargs...)
     return download_batch_output_file(GoogleProvider(), file_name; http_kwargs...)
 end
 
-function download_batch_output_file(api_key::String, file_name::String; http_kwargs...)
-    return download_batch_output_file(
-        GoogleProvider(; api_key=api_key), file_name; http_kwargs...
-    )
-end
+_error_text(err) = "ERROR: $(get(err, :message, err))"
+_result_key(result) = string(get(get(result, :metadata, Dict()), :key, ""))
 
 """
     extract_batch_text(result)::Vector{Pair{String,String}}
@@ -281,56 +316,39 @@ Failed requests are reported as `key => "ERROR: ..."` entries based on their
 status objects or the job's `error` field.
 """
 function extract_batch_text(result::JSON3.Object)
-    pairs_out = Pair{String,String}[]
-
-    # File-based result line: {"key": ..., "response": {...}} or error status
-    if haskey(result, :key) && haskey(result, :response) && result.response !== nothing
-        push!(
-            pairs_out,
-            string(result.key) => _generate_content_response_text(result.response),
-        )
-        return pairs_out
-    elseif haskey(result, :key) && haskey(result, :error) && result.error !== nothing
-        push!(
-            pairs_out,
-            string(result.key) => "ERROR: $(get(result.error, :message, result.error))",
-        )
-        return pairs_out
+    # File-based result line: {"key": ..., "response": {...}} or {"key": ..., "error": {...}}
+    if haskey(result, :key)
+        if get(result, :response, nothing) !== nothing
+            return [string(result.key) => _generate_content_response_text(result.response)]
+        elseif get(result, :error, nothing) !== nothing
+            return [string(result.key) => _error_text(result.error)]
+        end
     end
 
-    # Completed job object with inline responses
     response = get(result, :response, nothing)
-
-    # Job-level failure (e.g. JOB_STATE_FAILED with an error field)
     if response === nothing
         err = get(result, :error, nothing)
-        if err !== nothing
-            push!(pairs_out, "" => "ERROR: $(get(err, :message, err))")
-        end
-        return pairs_out
+        return err === nothing ? Pair{String,String}[] : ["" => _error_text(err)]
     end
 
     inlined = get(response, :inlinedResponses, nothing)
+    # The API nests the list: `{"inlinedResponses": {"inlinedResponses": [...]}}`.
+    inlined isa AbstractDict && (inlined = get(inlined, :inlinedResponses, ()))
     if inlined !== nothing
-        for inline_response in inlined
-            if get(inline_response, :response, nothing) !== nothing
+        pairs_out = Pair{String,String}[]
+        for item in inlined
+            if get(item, :response, nothing) !== nothing
                 push!(
                     pairs_out,
-                    string(get(get(inline_response, :metadata, Dict()), :key, "")) =>
-                        _generate_content_response_text(inline_response.response),
+                    _result_key(item) => _generate_content_response_text(item.response),
                 )
-            elseif get(inline_response, :error, nothing) !== nothing
-                err = inline_response.error
-                push!(
-                    pairs_out,
-                    string(get(get(inline_response, :metadata, Dict()), :key, "")) => "ERROR: $(get(err, :message, err))",
-                )
+            elseif get(item, :error, nothing) !== nothing
+                push!(pairs_out, _result_key(item) => _error_text(item.error))
             end
         end
         return pairs_out
     end
 
-    # File-based job: point the caller at the output file
     file_name = get(response, :responsesFile, nothing)
     if file_name !== nothing
         throw(
@@ -342,20 +360,15 @@ function extract_batch_text(result::JSON3.Object)
         )
     end
 
-    return pairs_out
+    return Pair{String,String}[]
 end
 
-# Best-effort text extraction from a GenerateContentResponse object.
 function _generate_content_response_text(response::JSON3.Object)
     texts = String[]
-    candidates = get(response, :candidates, nothing)
-    candidates === nothing && return ""
-    for candidate in candidates
+    for candidate in get(response, :candidates, ())
         content = get(candidate, :content, nothing)
         content === nothing && continue
-        parts = get(content, :parts, nothing)
-        parts === nothing && continue
-        for part in parts
+        for part in get(content, :parts, ())
             _is_answer_text(part) && push!(texts, String(part.text))
         end
     end

@@ -17,15 +17,72 @@ using Test
     @test setup["model"] == "models/gemini-2.5-flash"
     @test setup["generationConfig"]["responseModalities"] == ["AUDIO"]
     @test setup["generationConfig"]["temperature"] == 0.5
-    @test haskey(setup["generationConfig"]["speechConfig"], "voiceConfig")
-    @test setup["systemInstruction"]["parts"][1]["text"] == "Be brief."
+    @test haskey(setup["generationConfig"]["speechConfig"], :voiceConfig)
+    @test setup["systemInstruction"][:parts][1][:text] == "Be brief."
     @test !haskey(setup, "tools")
 
-    # Defaults are omitted
     minimal = GoogleGenAI._build_live_setup("m", GenerateContentConfig())
-    @test minimal["model"] == "models/m"
-    @test !haskey(minimal, "generationConfig")
-    @test !haskey(minimal, "systemInstruction")
+    @test minimal == Dict("model" => "models/m")
+
+    thinking = GoogleGenAI._build_live_setup(
+        "m",
+        GenerateContentConfig(;
+            thinking_config=ThinkingConfig(; thinking_budget=0), service_tier="flex"
+        ),
+    )
+    @test thinking["generationConfig"]["thinkingConfig"] == Dict("thinkingBudget" => 0)
+    @test !haskey(thinking, "serviceTier")
+end
+
+@testset "Live setup options" begin
+    setup = GoogleGenAI._build_live_setup(
+        "m",
+        GenerateContentConfig();
+        input_audio_transcription=true,
+        output_audio_transcription=true,
+        session_resumption=true,
+        context_window_compression=true,
+        realtime_input_config=Dict(:automaticActivityDetection => Dict(:disabled => true)),
+    )
+    @test setup["inputAudioTranscription"] == Dict()
+    @test setup["outputAudioTranscription"] == Dict()
+    @test setup["sessionResumption"] == Dict()
+    @test setup["contextWindowCompression"] == Dict("slidingWindow" => Dict())
+    @test setup["realtimeInputConfig"][:automaticActivityDetection][:disabled]
+
+    resumed = GoogleGenAI._build_live_setup(
+        "m",
+        GenerateContentConfig();
+        session_resumption="handle-1",
+        context_window_compression=Dict(:triggerTokens => 1000),
+    )
+    @test resumed["sessionResumption"] == Dict("handle" => "handle-1")
+    @test resumed["contextWindowCompression"] == Dict(:triggerTokens => 1000)
+    @test !haskey(resumed, "inputAudioTranscription")
+    @test_throws MethodError GoogleGenAI._build_live_setup(
+        "m", GenerateContentConfig(); unknown=1
+    )
+end
+
+@testset "Live event parsing (transcription and resumption)" begin
+    session = GoogleGenAI.LiveSession(
+        GoogleProvider(api_key="k"), "m", GenerateContentConfig(), Dict{String,Function}()
+    )
+    event = GoogleGenAI._parse_live_event(
+        session,
+        """{"serverContent": {"inputTranscription": {"text": "hello"}, "outputTranscription": {"text": "PONG"}}}""",
+    )
+    @test event[:input_transcription] == "hello"
+    @test event[:output_transcription] == "PONG"
+
+    GoogleGenAI._parse_live_event(
+        session, """{"sessionResumptionUpdate": {"newHandle": "h1", "resumable": true}}"""
+    )
+    @test session.resumption_handle == "h1"
+    GoogleGenAI._parse_live_event(
+        session, """{"sessionResumptionUpdate": {"resumable": false}}"""
+    )
+    @test session.resumption_handle == "h1"
 end
 
 @testset "Live and REST build the same tools" begin
@@ -72,15 +129,7 @@ end
         end
     )
     session = GoogleGenAI.LiveSession(
-        GoogleProvider(api_key="k"),
-        "m",
-        GenerateContentConfig(),
-        functions,
-        Channel{String}(Inf),
-        Channel{Dict{Symbol,Any}}(64),
-        Base.RefValue{Any}(nothing),
-        true,
-        true,
+        GoogleProvider(api_key="k"), "m", GenerateContentConfig(), functions
     )
     frame = """{"toolCall": {"functionCalls": [{"id": "1", "name": "get_weather", "args": {"city": "Oslo"}}]}}"""
     event = GoogleGenAI._parse_live_event(session, frame)
@@ -95,15 +144,7 @@ end
 
 @testset "Live event parsing (audio extraction)" begin
     session = GoogleGenAI.LiveSession(
-        GoogleProvider(api_key="k"),
-        "m",
-        GenerateContentConfig(),
-        Dict{String,Function}(),
-        Channel{String}(Inf),
-        Channel{Dict{Symbol,Any}}(64),
-        Base.RefValue{Any}(nothing),
-        true,
-        true,
+        GoogleProvider(api_key="k"), "m", GenerateContentConfig(), Dict{String,Function}()
     )
     audio_b64 = base64encode(UInt8[1, 2, 3])
     frame = """{"serverContent": {"modelTurn": {"parts": [{"inlineData": {"mimeType": "audio/pcm;rate=24000", "data": "$audio_b64"}}]}, "turnComplete": false}}"""
@@ -115,15 +156,7 @@ end
 
 @testset "Live send helpers serialize frames" begin
     session = GoogleGenAI.LiveSession(
-        GoogleProvider(api_key="k"),
-        "m",
-        GenerateContentConfig(),
-        Dict{String,Function}(),
-        Channel{String}(Inf),
-        Channel{Dict{Symbol,Any}}(64),
-        Base.RefValue{Any}(nothing),
-        true,
-        true,
+        GoogleProvider(api_key="k"), "m", GenerateContentConfig(), Dict{String,Function}()
     )
 
     send_realtime_input(

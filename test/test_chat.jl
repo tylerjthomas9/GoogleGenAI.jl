@@ -19,7 +19,7 @@ end
 
 @testset "Chat: Curated History" begin
     chat = create_chat("fake-key", "gemini-3.7-flash")
-    chat.history = Dict{Symbol,Any}[
+    call_turns = Dict{Symbol,Any}[
         Dict(:role => "user", :parts => [Dict(:text => "What's the weather?")]),
         Dict(
             :role => "model",
@@ -37,11 +37,68 @@ end
         ),
         Dict(:role => "model", :parts => [Dict(:text => "It's 25 degrees.")]),
     ]
+    blocked_turns = Dict{Symbol,Any}[
+        Dict(:role => "user", :parts => [Dict(:text => "Something blocked")]),
+        Dict(:role => "model", :parts => Dict{Symbol,Any}[]),
+    ]
+    chat.history = [call_turns; blocked_turns]
 
-    curated = get_history(chat; curated=true)
-    @test length(curated) == 2
-    @test curated[1][:role] == "user"
-    @test curated[2][:parts][1] == Dict(:text => "It's 25 degrees.")
+    @test get_history(chat) == chat.history
+    @test get_history(chat; curated=true) == call_turns
+end
+
+@testset "Chat: send_message records every turn" begin
+    weather = Dict(
+        "candidates" => [
+            Dict(
+                "content" => Dict(
+                    "role" => "model",
+                    "parts" => [
+                        Dict(
+                            "functionCall" => Dict(
+                                "name" => "get_weather",
+                                "args" => Dict("city" => "Oslo"),
+                            ),
+                        ),
+                    ],
+                ),
+            ),
+        ],
+    )
+    answer(text) = Dict(
+        "candidates" => [
+            Dict("content" =>
+                    Dict("role" => "model", "parts" => [Dict("text" => text)])),
+        ],
+    )
+    blocked = Dict("promptFeedback" => Dict("blockReason" => "SAFETY"))
+    replies = [weather, answer("Cold."), blocked, answer("Hi!")]
+    bodies = []
+    handler = function (req)
+        push!(bodies, JSON3.read(req.body))
+        return json_response(replies[length(bodies)])
+    end
+    functions = Dict{String,Function}("get_weather" => (; city) -> Dict("temp" => -3))
+
+    with_server(handler) do provider
+        chat = create_chat(provider, "m"; functions)
+        @test send_message(chat, "Weather in Oslo?").text == "Cold."
+        @test [turn[:role] for turn in chat.history] == ["user", "model", "user", "model"]
+        @test haskey(chat.history[2][:parts][1], :functionCall)
+        @test chat.history[3][:parts][1][:functionResponse][:response] == Dict("temp" => -3)
+
+        @test send_message(chat, "Say something bad").text == ""
+        @test length(chat.history) == 6
+        @test isempty(chat.history[6][:parts])
+
+        @test send_message(chat, ["Hello", (data="AAAA", mime_type="image/png")]).text ==
+            "Hi!"
+        @test length(get_history(chat; curated=true)) == 6
+    end
+    @test length(bodies[2].contents) == 3
+    @test length(bodies[4].contents) == 5
+    @test [c.parts[1].text for c in bodies[4].contents[[1, 5]]] == ["Weather in Oslo?", "Hello"]
+    @test bodies[4].contents[5].parts[2].inlineData.mimeType == "image/png"
 end
 
 @testset "Chat: Automatic Function Calling" begin

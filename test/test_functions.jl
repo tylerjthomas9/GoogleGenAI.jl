@@ -67,15 +67,12 @@ end
     fc = response.function_calls[1]
     result = get_weather(; location=get(fc.args, "location", "unknown"))
 
-    # Add to conversation with model's function call
-    model_msg = Dict(
-        :role => "model",
-        :parts => [Dict(:functionCall => Dict(:name => fc.name, :args => fc.args))],
-    )
+    # Send the model's turn back unchanged; Gemini 3 needs its thought signatures.
+    model_msg = Dict(:role => "model", :parts => response.candidates[1][:content][:parts])
 
     # Add function response
     func_msg = Dict(
-        :role => "function",
+        :role => "user",
         :parts => [Dict(:functionResponse => Dict(:name => fc.name, :response => result))],
     )
 
@@ -153,31 +150,15 @@ end
     @test sym_dict[:name] == "value"
     @test sym_dict[:number] == 42
 
-    # Test function conversation building
-    user_query = "What's the weather?"
     function_name = "get_weather"
-    function_args = Dict("location" => "Paris")
     function_result = Dict("temperature" => 25, "condition" => "sunny")
-
-    convo = GoogleGenAI.build_function_conversation(
-        user_query, function_name, function_args, function_result
-    )
-
-    @test length(convo) == 3
-    @test convo[1][:role] == "user"
-    @test convo[2][:role] == "model"
-    @test convo[3][:role] == "function"
-    @test haskey(convo[2][:parts][1], :functionCall)
-    @test haskey(convo[3][:parts][1], :functionResponse)
-
-    # Test adding function result to conversation
     base_convo = [Dict(:role => "user", :parts => [Dict(:text => "Hello")])]
     updated_convo = add_function_result_to_conversation(
         base_convo, function_name, function_result
     )
 
     @test length(updated_convo) == 2
-    @test updated_convo[2][:role] == "function"
+    @test updated_convo[2][:role] == "user"
     @test haskey(updated_convo[2][:parts][1], :functionResponse)
 end
 
