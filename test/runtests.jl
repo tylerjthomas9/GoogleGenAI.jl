@@ -131,6 +131,19 @@ end
     end
 end
 
+@testset "Live handshake errors are thrown as GeminiAPIError" begin
+    body = """{"error": {"code": 403, "message": "denied", "status": "PERMISSION_DENIED"}}"""
+    with_server(_ -> HTTP.Response(403, body)) do provider
+        err = try
+            connect_live(provider, "m")
+        catch e
+            e
+        end
+        # HTTP.jl reports a refused handshake as close code 1002, without the response.
+        @test err isa GeminiAPIError
+    end
+end
+
 @testset "Retries follow RetryOptions" begin
     statuses = [503, 429, 200]
     seen = Int[]
